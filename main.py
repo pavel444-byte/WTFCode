@@ -105,6 +105,38 @@ def glob_search(pattern: str) -> str:
     except Exception as e:
         return f"Error during glob search: {str(e)}"
 
+def get_latest_github_version(repo_url: str = "https://github.com/pavel444-byte/WTFcode.git") -> str:
+    """Fetch the latest version/tag from the GitHub repository."""
+    try:
+        result = subprocess.run(
+            ["git", "ls-remote", "--tags", repo_url],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            if lines:
+                # Get the latest tag (last line typically has the latest tag)
+                for line in reversed(lines):
+                    if line and 'refs/tags/' in line:
+                        tag = line.split('refs/tags/')[-1].replace('^{}', '')
+                        return tag
+        return "unknown"
+    except Exception as e:
+        return "unavailable"
+
+def get_config_or_prompt(env_key: str, prompt_text: str, choices: Optional[List[str]] = None, default: Optional[str] = None) -> str:
+    """Get configuration value from .env, or prompt user if not found."""
+    value = os.getenv(env_key)
+    if value:
+        return value
+    
+    if choices:
+        return Prompt.ask(prompt_text, choices=choices, default=default or choices[0])
+    else:
+        return Prompt.ask(prompt_text, default=default or "")
+
 TOOLS = [
     {
         "type": "function",
@@ -330,19 +362,43 @@ Guidelines:
         console.print(Panel(Markdown(content), title="Ask Mode", border_style="blue"))
 
 def start_cli() -> None:
+    # Fetch latest version from GitHub
+    with console.status("[bold cyan]Fetching latest version from GitHub..."):
+        latest_version = get_latest_github_version()
+    
     console.print(Panel.fit(
         "[bold green]WTFcode[/bold green]\n"
-        "Auto Code Edit | Agent Mode | Ask Mode | Auto Bash",
+        "Auto Code Edit | Agent Mode | Ask Mode | Auto Bash\n"
+        f"[dim]Latest: {latest_version}[/dim]",
         subtitle="v1.0.0"
     ))
     
-    provider = Prompt.ask("[bold white]Provider[/bold white] ([cyan]openai[/cyan]/[green]anthropic[/green]/[yellow]openrouter[/yellow]/[blue]gemini[/blue])", choices=["openai", "anthropic", "openrouter", "gemini"], default="openai")
-    assistant: CodeAssist = CodeAssist(provider=provider)
+    # Try to get provider from .env, otherwise prompt user
+    provider = get_config_or_prompt(
+        "PROVIDER",
+        "[bold white]Provider[/bold white] ([cyan]openai[/cyan]/[green]anthropic[/green]/[yellow]openrouter[/yellow]/[blue]gemini[/blue])",
+        choices=["openai", "anthropic", "openrouter", "gemini"],
+        default="openai"
+    )
+    
+    # Try to get model from .env, otherwise use default logic in CodeAssist
+    model = os.getenv("MODEL")
+    
+    # Auto-fetch model info if specified in .env
+    if model:
+        with console.status("[bold cyan]Fetching model information..."):
+            available_models = fetch_available_models(provider)
+        if available_models and model in available_models:
+            console.print(f"[bold green]Model loaded from .env:[/bold green] {model}")
+        elif available_models:
+            console.print(f"[bold yellow]Warning:[/bold yellow] Model '{model}' from .env not found in {provider} provider.")
+    
+    assistant: CodeAssist = CodeAssist(provider=provider, model=model)
     mode = "agent"
     
     while True:
         try:
-            query = Prompt.ask(f"[bold {('cyan' if mode == 'agent' else 'blue')}]{mode}[/bold {('cyan' if mode == 'agent' else 'blue')}] What's on your mind?")
+            query = Prompt.ask(f"[bold {('cyan' if mode == 'agent' else 'blue')}]{mode}[/bold {('cyan' if mode == 'agent' else 'blue')}] [green]>").strip()
             
             if query.lower() == 'exit':
                 console.print("[yellow]Goodbye![/yellow]")
