@@ -13,8 +13,8 @@ dependencies = [
     "requests"
 ]
 [project.scripts]
-wtfcode = "main"
-WTFcode = "main"
+wtfcode = "main:start_cli"
+WTFcode = "main:start_cli"
 [build-system]
 requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
