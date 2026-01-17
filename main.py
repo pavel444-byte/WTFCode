@@ -5,6 +5,7 @@ import json
 from typing import List, Dict, Any, Optional, Union
 from dataclasses import dataclass
 from pathlib import Path
+import time
 
 try:
     import openai
@@ -400,14 +401,26 @@ def start_cli() -> None:
             query = Prompt.ask(f"[bold {('cyan' if mode == 'agent' else 'blue')}]{mode}[/bold {('cyan' if mode == 'agent' else 'blue')}] [green]>").strip()
             
             if query.lower() == '/exit':
-                console.print("[yellow]Goodbye![/yellow]")
+                console.print("[bold magenta]Exiting WTFcode...[/bold magenta]")
+                time.sleep(1.5)
+                console.print("[bold magenta]Saving all...[/bold magenta]")
+                time.sleep(1.5)
+                console.print("[bold magenta]Goodbye![/bold magenta]")
                 exit()
             
             if query == '/mode':
                 mode = Prompt.ask("\n[bold white]Switch Mode[/bold white] ([cyan]agent[/cyan]/[blue]ask[/blue])", choices=["agent", "ask"], default=mode).lower()
                 console.print(f"[bold green]Mode switched to:[/bold green] {mode}")
                 continue
-            
+            if query == '/help':
+                console.print(Panel(
+                    "[bold cyan]/mode[/bold cyan] - Switch between Agent and Ask modes\n"
+                    "[bold cyan]/models[/bold cyan] - List and select available models for the current provider\n"
+                    "[bold cyan]/exit[/bold cyan] - Exit the application\n"
+                    "[bold cyan]/help[/bold cyan] - Show this help message",
+                    title="Help", border_style="cyan"
+                ))
+                continue
             if query.startswith('/models'):
                 console.print(f"\n[bold yellow]Fetching available models for {provider}...[/bold yellow]")
                 available_models = fetch_available_models(provider)
@@ -440,7 +453,7 @@ def start_cli() -> None:
                 assistant.ask_only(query)
                 
         except KeyboardInterrupt:
-            console.print("\n[yellow]Interrupted. Type 'exit' to quit.[/yellow]")
+            console.print("\n[yellow]Interrupted. Type '/exit' to quit.[/yellow]")
             continue
         except Exception as e:
             console.print(f"[bold red]Exception:[/bold red] {str(e)}")
