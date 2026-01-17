@@ -343,7 +343,7 @@ Guidelines:
             elif self.provider == "gemini":
                 content = ""
             if content:
-                console.print(Panel(Markdown(content), title="CodeAssist", border_style="green"))
+                console.print(Panel(Markdown(content), title="WTFCode Assistant", border_style="green"))
             break
 
     def ask_only(self, prompt: str) -> None:
@@ -430,11 +430,26 @@ def start_cli() -> None:
                 console.print(Panel(
                     "[bold cyan]/mode[/bold cyan] - Switch between Agent and Ask modes\n"
                     "[bold cyan]/models[/bold cyan] - List and select available models for the current provider\n"
+                    "[bold cyan]/new[/bold cyan] - Start a new session (clear history except system messages)\n"
+                    "[bold cyan]/restart[/bold cyan] - Restart the application\n"
                     "[bold cyan]/add {file}[/bold cyan] - Add a file's content to the conversation context\n"
                     "[bold cyan]/exit[/bold cyan] - Exit the application\n"
                     "[bold cyan]/help[/bold cyan] - Show this help message",
                     title="Help", border_style="cyan"
                 ))
+                continue
+            if query == '/restart':
+                console.print("[bold yellow]Restarting...[/bold yellow]")
+                os.execv(sys.executable, ['python'] + sys.argv)
+            if query == '/new':
+                assistant.history = [m for m in assistant.history if (isinstance(m, dict) and m.get("role") == "system") or (not isinstance(m, dict) and getattr(m, "role", "") == "system")]
+                console.clear()
+                time.sleep(0.5)
+                start_cli()
+                time.sleep(1.5)
+                console.print("[bold green]New session started. History cleared.[/bold green]")
+                continue
+            if query.startswith(' ') or query.startswith(''):
                 continue
             if query.startswith('/add '):
                 file_to_add = query[5:].strip()
