@@ -412,9 +412,10 @@ def start_cli() -> None:
             query = Prompt.ask(f"[bold {('cyan' if mode == 'agent' else 'blue')}]{mode}[/bold {('cyan' if mode == 'agent' else 'blue')}] [green]>").strip()
             
             if query.lower() == '/exit':
-                console.print("[bold magenta]Exiting WTFcode...[/bold magenta]")
-                time.sleep(1.5)
-                console.print("[bold magenta]Saving all...[/bold magenta]")
+                time.sleep(1.6)
+            with console.status("[bold magenta]Exiting WTFcode...[/bold magenta]"):
+                time.sleep(1.6)
+            with console.status("[bold magenta]Saving all...[/bold magenta]"):
                 time.sleep(1.5)
                 console.print("[bold magenta]Goodbye![/bold magenta]")
                 exit()
