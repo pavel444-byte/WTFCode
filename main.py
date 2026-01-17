@@ -339,16 +339,22 @@ def start_cli() -> None:
     
     provider = Prompt.ask("[bold white]Provider[/bold white] ([cyan]openai[/cyan]/[green]anthropic[/green]/[yellow]openrouter[/yellow]/[blue]gemini[/blue])", choices=["openai", "anthropic", "openrouter", "gemini"], default="openai")
     assistant: CodeAssist = CodeAssist(provider=provider)
+    mode = Prompt.ask("\n[bold white]Mode[/bold white] ([cyan]agent[/cyan]/[blue]ask[/blue])", choices=["agent", "ask"], default="agent").lower()
     
     while True:
         try:
-            mode = Prompt.ask("\n[bold white]Mode[/bold white] ([cyan]agent[/cyan]/[blue]ask[/blue]/[magenta]/models[/magenta]/[red]exit[/red])", choices=["agent", "ask", "/models", "exit"], default="agent").lower()
+            query = Prompt.ask(f"[bold {('cyan' if mode == 'agent' else 'blue')}]{mode}[/bold {('cyan' if mode == 'agent' else 'blue')}] What's on your mind?")
             
-            if mode == 'exit':
+            if query.lower() == 'exit':
                 console.print("[yellow]Goodbye![/yellow]")
                 break
             
-            if mode == '/models':
+            if query == '/mode':
+                mode = Prompt.ask("\n[bold white]Switch Mode[/bold white] ([cyan]agent[/cyan]/[blue]ask[/blue])", choices=["agent", "ask"], default=mode).lower()
+                console.print(f"[bold green]Mode switched to:[/bold green] {mode}")
+                continue
+            
+            if query.startswith('/models'):
                 console.print(f"\n[bold yellow]Fetching available models for {provider}...[/bold yellow]")
                 available_models = fetch_available_models(provider)
                 if available_models:
@@ -371,11 +377,6 @@ def start_cli() -> None:
                     console.print("[bold red]Could not fetch available models.[/bold red]")
                 continue
 
-            if mode not in ['agent', 'ask']:
-                console.print("[red]Invalid mode.[/red]")
-                continue
-
-            query = Prompt.ask(f"[{mode}] What's on your mind?")
             if not query:
                 continue
 
