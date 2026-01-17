@@ -417,7 +417,8 @@ def start_cli() -> None:
                 time.sleep(1.6)
             with console.status("[bold magenta]Saving all...[/bold magenta]"):
                 time.sleep(1.5)
-                console.print("[bold magenta]Goodbye![/bold magenta]")
+            with console.status("[bold magenta]Exiting...[/bold magenta]"):
+                time.sleep(1.4)
                 exit()
             
             if query == '/mode':
