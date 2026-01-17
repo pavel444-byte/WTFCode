@@ -370,7 +370,6 @@ def start_cli() -> None:
         "[bold green]WTFcode[/bold green]\n"
         "Auto Code Edit | Agent Mode | Ask Mode | Auto Bash\n"
         f"[dim]Latest: {latest_version}[/dim]",
-        subtitle="v1.0.0"
     ))
     
     # Try to get provider from .env, otherwise prompt user
@@ -400,9 +399,9 @@ def start_cli() -> None:
         try:
             query = Prompt.ask(f"[bold {('cyan' if mode == 'agent' else 'blue')}]{mode}[/bold {('cyan' if mode == 'agent' else 'blue')}] [green]>").strip()
             
-            if query.lower() == 'exit':
+            if query.lower() == '/exit':
                 console.print("[yellow]Goodbye![/yellow]")
-                break
+                exit()
             
             if query == '/mode':
                 mode = Prompt.ask("\n[bold white]Switch Mode[/bold white] ([cyan]agent[/cyan]/[blue]ask[/blue])", choices=["agent", "ask"], default=mode).lower()
