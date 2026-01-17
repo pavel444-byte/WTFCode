@@ -7,7 +7,7 @@ requires-python = ">=3.13"
 dependencies = [
     "openai",
     "anthropic",
-    "google-generativeai",
+    "google-genai",
     "rich",
     "python-dotenv",
     "requests"

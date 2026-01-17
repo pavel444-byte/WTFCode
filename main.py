@@ -9,7 +9,7 @@ from pathlib import Path
 try:
     import openai
     import anthropic
-    from google import generativeai as genai
+    import google.genai as genai
     from rich.console import Console
     from rich.markdown import Markdown
     from rich.panel import Panel
@@ -217,8 +217,7 @@ class CodeAssist:
             if not api_key:
                 console.print("[bold red]Error:[/bold red] GOOGLE_API_KEY not found in environment or .env file.")
                 sys.exit(1)
-            genai.configure(api_key=api_key)  # type: ignore
-            self.client = genai.GenerativeModel(model=self.model)  # type: ignore
+            self.client = genai.Client(api_key=api_key)  # type: ignore
         self.history = [
             {"role": "system", "content": """You are 'CodeAssist', a high-performance AI coding agent.
 You help users by modifying code, running commands, and answering questions.
@@ -332,14 +331,14 @@ Guidelines:
 
 def start_cli() -> None:
     console.print(Panel.fit(
-        "[bold green]CodeAssist AI[/bold green]\n"
+        "[bold green]WTFcode[/bold green]\n"
         "Auto Code Edit | Agent Mode | Ask Mode | Auto Bash",
         subtitle="v1.0.0"
     ))
     
     provider = Prompt.ask("[bold white]Provider[/bold white] ([cyan]openai[/cyan]/[green]anthropic[/green]/[yellow]openrouter[/yellow]/[blue]gemini[/blue])", choices=["openai", "anthropic", "openrouter", "gemini"], default="openai")
     assistant: CodeAssist = CodeAssist(provider=provider)
-    mode = Prompt.ask("\n[bold white]Mode[/bold white] ([cyan]agent[/cyan]/[blue]ask[/blue])", choices=["agent", "ask"], default="agent").lower()
+    mode = "agent"
     
     while True:
         try:
