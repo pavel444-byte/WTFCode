@@ -41,11 +41,20 @@ def fetch_available_models(provider: str) -> List[str]:
                 return [m["id"] for m in response.json().get("data", [])]
             return []
         elif provider == "anthropic":
-            # Anthropic doesn't provide a public models list API, return known models
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            if api_key:
+                client = anthropic.Anthropic(api_key=api_key)
+                return [m.id for m in client.models.list().data]
             return ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20250219"]
         elif provider == "gemini":
-            # Gemini doesn't provide a public models list API, return known models
-            return ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash"]
+            import requests            
+            api_key = os.getenv("GOOGLE_API_KEY")
+            if api_key:
+                headers = {"Authorization": f"Bearer {api_key}"}
+                response = requests.get("https://generativelanguage.googleapis.com/v1beta/models", headers=headers)
+                if response.status_code == 200:
+                    return [m["name"] for m in response.json().get("models", [])]
+            return []
         return []
     except Exception as e:
         console.print(f"[red]Error fetching models for {provider}: {str(e)}[/red]")
@@ -363,10 +372,12 @@ Guidelines:
         console.print(Panel(Markdown(content), title="Ask Mode", border_style="blue"))
 
 def start_cli() -> None:
+
     # Fetch latest version from GitHub
     with console.status("[bold cyan]Fetching latest version from GitHub..."):
         latest_version = get_latest_github_version()
-    
+    with console.status("[bold cyan]Starting WTFcode CLI..."):
+        time.sleep(1.8)
     console.print(Panel.fit(
         "[bold green]WTFcode[/bold green]\n"
         "Auto Code Edit | Agent Mode | Ask Mode | Auto Bash\n"
