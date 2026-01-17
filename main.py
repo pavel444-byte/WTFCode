@@ -380,8 +380,9 @@ def start_cli() -> None:
         time.sleep(1.8)
     console.print(Panel.fit(
         "[bold green]WTFcode[/bold green]\n"
-        "Auto Code Edit | Agent Mode | Ask Mode | Auto Bash\n"
-        f"[dim]Latest: {latest_version}[/dim]",
+        "Auto Code Edit | Agent Mode | Ask Mode | Auto Bash",
+        subtitle=f"[dim]{latest_version}[/dim]",
+        border_style="green"
     ))
     
     # Try to get provider from .env, otherwise prompt user
@@ -411,15 +412,15 @@ def start_cli() -> None:
         try:
             query = Prompt.ask(f"[bold {('cyan' if mode == 'agent' else 'blue')}]{mode}[/bold {('cyan' if mode == 'agent' else 'blue')}] [green]>").strip()
             
-            if query.lower() == '/exit':
+            if query == '/exit':
                 time.sleep(1.6)
-            with console.status("[bold magenta]Exiting WTFcode...[/bold magenta]"):
-                time.sleep(1.6)
-            with console.status("[bold magenta]Saving all...[/bold magenta]"):
-                time.sleep(1.5)
-            with console.status("[bold magenta]Exiting...[/bold magenta]"):
-                time.sleep(1.4)
-                exit()
+                with console.status("[bold magenta]Exiting WTFcode...[/bold magenta]"):
+                    time.sleep(1.6)
+                with console.status("[bold magenta]Saving all...[/bold magenta]"):
+                    time.sleep(1.5)
+                with console.status("[bold magenta]Exiting...[/bold magenta]"):
+                    time.sleep(1.4)
+                    exit()
             
             if query == '/mode':
                 mode = Prompt.ask("\n[bold white]Switch Mode[/bold white] ([cyan]agent[/cyan]/[blue]ask[/blue])", choices=["agent", "ask"], default=mode).lower()
@@ -429,10 +430,24 @@ def start_cli() -> None:
                 console.print(Panel(
                     "[bold cyan]/mode[/bold cyan] - Switch between Agent and Ask modes\n"
                     "[bold cyan]/models[/bold cyan] - List and select available models for the current provider\n"
+                    "[bold cyan]/add {file}[/bold cyan] - Add a file's content to the conversation context\n"
                     "[bold cyan]/exit[/bold cyan] - Exit the application\n"
                     "[bold cyan]/help[/bold cyan] - Show this help message",
                     title="Help", border_style="cyan"
                 ))
+                continue
+            if query.startswith('/add '):
+                file_to_add = query[5:].strip()
+                if os.path.exists(file_to_add):
+                    with console.status(f"[bold cyan]Reading {file_to_add}..."):
+                        content = read_file(file_to_add)
+                        assistant.history.append({
+                            "role": "user",
+                            "content": f"Context from file `{file_to_add}`:\n\n{content}"
+                        })
+                    console.print(f"[bold green]Added {file_to_add} to context.[/bold green]")
+                else:
+                    console.print(f"[bold red]Error:[/bold red] File '{file_to_add}' not found.")
                 continue
             if query.startswith('/models'):
                 console.print(f"\n[bold yellow]Fetching available models for {provider}...[/bold yellow]")
