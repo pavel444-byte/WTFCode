@@ -1,3 +1,4 @@
 openai
 rich
 python-dotenv
+requests

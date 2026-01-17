@@ -24,6 +24,32 @@ load_dotenv()
 
 console = Console()
 
+def fetch_available_models(provider: str) -> List[str]:
+    """Fetch available models for the given provider."""
+    try:
+        if provider == "openai":
+            client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            models = client.models.list()
+            return [m.id for m in models.data]
+        elif provider == "openrouter":
+            import requests
+            api_key = os.getenv("OPENROUTER_API_KEY")
+            headers = {"Authorization": f"Bearer {api_key}"}
+            response = requests.get("https://openrouter.ai/api/v1/models", headers=headers)
+            if response.status_code == 200:
+                return [m["id"] for m in response.json().get("data", [])]
+            return []
+        elif provider == "anthropic":
+            # Anthropic doesn't provide a public models list API, return known models
+            return ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20250219"]
+        elif provider == "gemini":
+            # Gemini doesn't provide a public models list API, return known models
+            return ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash"]
+        return []
+    except Exception as e:
+        console.print(f"[red]Error fetching models for {provider}: {str(e)}[/red]")
+        return []
+
 def read_file(path: str) -> str:
     abs_path = os.path.abspath(path)
     try:
@@ -168,6 +194,9 @@ class CodeAssist:
             elif provider == "gemini":
                 model = "gemini-1.5-flash"
         self.model: str = model  # type: ignore
+        
+        # Validate model exists in provider
+        self._validate_model()
 
         if provider in ["openai", "openrouter"]:
             api_key_env = "OPENROUTER_API_KEY" if provider == "openrouter" else "OPENAI_API_KEY"
@@ -199,6 +228,17 @@ Guidelines:
 3. Be concise and professional.
 4. If a command is dangerous, warn the user first (though in this CLI, they are auto-executed)."""}
         ]
+
+    def _validate_model(self) -> None:
+        """Validate that the selected model exists in the provider."""
+        available_models = fetch_available_models(self.provider)
+        if available_models and self.model not in available_models:
+            console.print(f"[bold yellow]Warning:[/bold yellow] Model '{self.model}' not found in {self.provider} provider.")
+            console.print(f"Available models: {', '.join(available_models[:5])}{'...' if len(available_models) > 5 else ''}")
+        elif not available_models:
+            console.print(f"[bold yellow]Warning:[/bold yellow] Could not validate model availability for {self.provider}.")
+        else:
+            console.print(f"[bold green]Model validated:[/bold green] {self.model}")
 
     def process_tool_calls(self, tool_calls: list) -> list:
         results = []
@@ -302,12 +342,35 @@ def start_cli() -> None:
     
     while True:
         try:
-            mode = Prompt.ask("\n[bold white]Mode[/bold white] ([cyan]agent[/cyan]/[blue]ask[/blue]/[red]exit[/red])", choices=["agent", "ask", "exit"], default="agent").lower()
+            mode = Prompt.ask("\n[bold white]Mode[/bold white] ([cyan]agent[/cyan]/[blue]ask[/blue]/[magenta]/models[/magenta]/[red]exit[/red])", choices=["agent", "ask", "/models", "exit"], default="agent").lower()
             
             if mode == 'exit':
                 console.print("[yellow]Goodbye![/yellow]")
                 break
             
+            if mode == '/models':
+                console.print(f"\n[bold yellow]Fetching available models for {provider}...[/bold yellow]")
+                available_models = fetch_available_models(provider)
+                if available_models:
+                    console.print(f"\n[bold green]Available Models for {provider}:[/bold green]")
+                    for idx, model in enumerate(available_models[:20], 1):
+                        console.print(f"  {idx}. {model}")
+                    if len(available_models) > 20:
+                        console.print(f"  ... and {len(available_models) - 20} more")
+                    
+                    # Prompt for model selection
+                    selected_model = Prompt.ask("\n[bold white]Enter model name (or press Enter to skip)[/bold white]", default="")
+                    if selected_model:
+                        if selected_model in available_models:
+                            assistant.model = selected_model
+                            assistant._validate_model()
+                            console.print(f"[bold green]Model updated to:[/bold green] {selected_model}")
+                        else:
+                            console.print(f"[bold red]Error:[/bold red] Model '{selected_model}' not found.")
+                else:
+                    console.print("[bold red]Could not fetch available models.[/bold red]")
+                continue
+
             if mode not in ['agent', 'ask']:
                 console.print("[red]Invalid mode.[/red]")
                 continue

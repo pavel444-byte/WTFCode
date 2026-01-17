@@ -9,5 +9,6 @@ dependencies = [
     "anthropic",
     "google-generativeai",
     "rich",
-    "python-dotenv"
+    "python-dotenv",
+    "requests"
 ]
