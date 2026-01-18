@@ -395,9 +395,8 @@ def start_cli() -> None:
         time.sleep(1.8)
     console.print(Panel.fit(
         "[bold green]WTFcode[/bold green]\n"
-        "Auto Code Edit | Agent Mode | Ask Mode | Auto Bash",
-        subtitle=f"[dim]{latest_version}[/dim]",
-        border_style="green"
+        "Auto Code Edit | Agent Mode | Ask Mode | Auto Bash\n"
+        f"[dim]Latest: {latest_version}[/dim]",
     ))
     
     # Try to get provider from .env, otherwise prompt user
@@ -427,15 +426,15 @@ def start_cli() -> None:
         try:
             query = Prompt.ask(f"[bold {('cyan' if mode == 'agent' else 'blue')}]{mode}[/bold {('cyan' if mode == 'agent' else 'blue')}] [green]>").strip()
             
-            if query == '/exit':
+            if query.lower() == '/exit':
                 time.sleep(1.6)
-                with console.status("[bold magenta]Exiting WTFcode...[/bold magenta]"):
-                    time.sleep(1.6)
-                with console.status("[bold magenta]Saving all...[/bold magenta]"):
-                    time.sleep(1.5)
-                with console.status("[bold magenta]Exiting...[/bold magenta]"):
-                    time.sleep(1.4)
-                    exit()
+            with console.status("[bold magenta]Exiting WTFcode...[/bold magenta]"):
+                time.sleep(1.6)
+            with console.status("[bold magenta]Saving all...[/bold magenta]"):
+                time.sleep(1.5)
+            with console.status("[bold magenta]Exiting...[/bold magenta]"):
+                time.sleep(1.4)
+                exit()
             
             if query == '/mode':
                 mode = Prompt.ask("\n[bold white]Switch Mode[/bold white] ([cyan]agent[/cyan]/[blue]ask[/blue])", choices=["agent", "ask"], default=mode).lower()
@@ -445,24 +444,11 @@ def start_cli() -> None:
                 console.print(Panel(
                     "[bold cyan]/mode[/bold cyan] - Switch between Agent and Ask modes\n"
                     "[bold cyan]/models[/bold cyan] - List and select available models for the current provider\n"
-                    "[bold cyan]/new[/bold cyan] - Start a new session (clear history except system messages)\n"
-                    "[bold cyan]/restart[/bold cyan] - Restart the application\n"
                     "[bold cyan]/add {file}[/bold cyan] - Add a file's content to the conversation context\n"
                     "[bold cyan]/exit[/bold cyan] - Exit the application\n"
                     "[bold cyan]/help[/bold cyan] - Show this help message",
                     title="Help", border_style="cyan"
                 ))
-                continue
-            if query == '/restart':
-                console.print("[bold yellow]Restarting...[/bold yellow]")
-                os.execv(sys.executable, ['python'] + sys.argv)
-            if query == '/new':
-                assistant.history = [m for m in assistant.history if (isinstance(m, dict) and m.get("role") == "system")]
-                console.clear()
-                time.sleep(0.5)
-                start_cli()
-                time.sleep(1.5)
-                console.print("[bold green]New session started. History cleared.[/bold green]")
                 continue
             if query.startswith('/add '):
                 file_to_add = query[5:].strip()
