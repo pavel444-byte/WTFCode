@@ -95,7 +95,27 @@ def read_file(path: str) -> str:
 def write_file(path: str, content: str) -> str:
     abs_path = os.path.abspath(path)
     try:
+        old_content = ""
+        if os.path.exists(abs_path):
+            with open(abs_path, 'r', encoding='utf-8') as f:
+                old_content = f.read()
+        
         os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        
+        # Show diff if file exists
+        if old_content:
+            import difflib
+            diff = list(difflib.unified_diff(
+                old_content.splitlines(keepends=True),
+                content.splitlines(keepends=True),
+                fromfile=f"a/{path}",
+                tofile=f"b/{path}"
+            ))
+            if diff:
+                console.print(Panel("".join(diff), title=f"Changes in {path}", border_style="blue"))
+        else:
+            console.print(Panel(f"New file created: {path}", border_style="green"))
+
         with open(abs_path, 'w', encoding='utf-8') as f:
             f.write(content)
         return f"Successfully wrote to {path}"
@@ -111,7 +131,20 @@ def edit_file(path: str, old_str: str, new_str: str) -> str:
             return f"Error: The exact string to replace was not found in {path}. Ensure indentation matches."
         if content.count(old_str) > 1:
             return f"Error: Multiple occurrences of the search string found in {path}. Please provide more context."
+        
         new_content = content.replace(old_str, new_str)
+        
+        # Show diff before writing
+        import difflib
+        diff = list(difflib.unified_diff(
+            content.splitlines(keepends=True),
+            new_content.splitlines(keepends=True),
+            fromfile=f"a/{path}",
+            tofile=f"b/{path}"
+        ))
+        if diff:
+            console.print(Panel("".join(diff), title=f"Changes in {path}", border_style="blue"))
+
         with open(abs_path, 'w', encoding='utf-8') as f:
             f.write(new_content)
         return f"Successfully updated {path}"
@@ -384,14 +417,28 @@ Guidelines:
                 }
                 
                 # Add reasoning for OpenRouter if applicable
-                if self.provider == "openrouter" and any(x in self.model.lower() for x in ["thinking", "reasoning", "o1", "o3"]):
-                    params["include_reasoning"] = True # type: ignore
+                if self.provider == "openrouter":
+                    params["extra_body"] = {"include_reasoning": True}
 
                 response = self.client.chat.completions.create(**params)  # type: ignore
                 msg = response.choices[0].message
                 
                 # Handle thinking/reasoning content for OpenRouter/OpenAI
                 reasoning = getattr(msg, 'reasoning_content', None) or (msg.extra_body.get('reasoning') if hasattr(msg, 'extra_body') and msg.extra_body else None)
+                
+                # Check for reasoning in the message object itself (some SDK versions)
+                if not reasoning and hasattr(msg, 'reasoning'):
+                    reasoning = msg.reasoning
+
+                # Fallback for some OpenRouter models that put reasoning in the content with <thought> tags
+                if not reasoning and msg.content and ("<thought>" in msg.content or "<think>" in msg.content):
+                    import re
+                    thought_match = re.search(r'<(thought|think)>(.*?)</\1>', msg.content, re.DOTALL)
+                    if thought_match:
+                        reasoning = thought_match.group(2).strip()
+                        # Remove thought from content so it's not displayed twice
+                        msg.content = msg.content.replace(thought_match.group(0), "").strip()
+
                 if reasoning:
                     console.print(Panel(Markdown(reasoning), title="Thinking Process", border_style="dim cyan"))
             elif self.provider == "anthropic":
@@ -444,12 +491,26 @@ Guidelines:
             }
             
             # Add reasoning for OpenRouter if applicable
-            if self.provider == "openrouter" and any(x in self.model.lower() for x in ["thinking", "reasoning", "o1", "o3"]):
-                params["include_reasoning"] = True # type: ignore
+            if self.provider == "openrouter":
+                params["extra_body"] = {"include_reasoning": True}
 
             response = self.client.chat.completions.create(**params)  # type: ignore
             msg = response.choices[0].message
             reasoning = getattr(msg, 'reasoning_content', None) or (msg.extra_body.get('reasoning') if hasattr(msg, 'extra_body') and msg.extra_body else None)
+            
+            # Check for reasoning in the message object itself (some SDK versions)
+            if not reasoning and hasattr(msg, 'reasoning'):
+                reasoning = msg.reasoning
+
+            # Fallback for some OpenRouter models that put reasoning in the content with <thought> tags
+            if not reasoning and msg.content and ("<thought>" in msg.content or "<think>" in msg.content):
+                import re
+                thought_match = re.search(r'<(thought|think)>(.*?)</\1>', msg.content, re.DOTALL)
+                if thought_match:
+                    reasoning = thought_match.group(2).strip()
+                    # Remove thought from content so it's not displayed twice
+                    msg.content = msg.content.replace(thought_match.group(0), "").strip()
+
             if reasoning:
                 console.print(Panel(Markdown(reasoning), title="Thinking Process", border_style="dim cyan"))
             content = msg.content or ""
