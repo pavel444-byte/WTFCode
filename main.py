@@ -471,6 +471,16 @@ Guidelines:
 
 def start_cli() -> None:
 
+    # Check for WEB_MODE in .env
+    if os.getenv("WEB_MODE", "").lower() == "true":
+        console.print("[bold green]WEB_MODE detected in .env. Starting Streamlit...[/bold green]")
+        try:
+            subprocess.run(["streamlit", "run", "web.py"])
+        except KeyboardInterrupt:
+            console.print("\n[bold magenta]Exiting WTFcode...[/bold magenta]")
+            sys.exit(0)
+        return
+
     # Fetch latest version from GitHub
     with console.status("[bold cyan]Fetching latest version from GitHub..."):
         latest_version = get_latest_github_version()
@@ -528,6 +538,7 @@ def start_cli() -> None:
                 console.print(Panel(
                     "[bold cyan]/mode[/bold cyan] - Switch between Agent and Ask modes\n"
                     "[bold cyan]/models[/bold cyan] - List and select available models for the current provider\n"
+                    "[bold cyan]/web[/bold cyan] - Start the Streamlit web interface\n"
                     "[bold cyan]/add {file}[/bold cyan] - Add a file's content to the conversation context\n"
                     "[bold cyan]/commit[/bold cyan] - Generate a commit message and commit all changes\n"
                     "[bold cyan]/exit[/bold cyan] - Exit the application\n"
@@ -545,6 +556,13 @@ def start_cli() -> None:
                     with console.status("[bold cyan]Committing..."):
                         result = git_commit(commit_msg)
                     console.print(f"[bold green]{result}[/bold green]")
+                continue
+            if query == '/web':
+                console.print("[bold green]Starting Streamlit web interface...[/bold green]")
+                try:
+                    subprocess.run(["streamlit", "run", "web.py"])
+                except KeyboardInterrupt:
+                    console.print("\n[bold magenta]Exiting Streamlit...[/bold magenta]")
                 continue
             if query.startswith('/add '):
                 file_to_add = query[5:].strip()

@@ -13,6 +13,7 @@ dependencies = [
     "requests",
     "win11toast>=0.36.3",
     "pygetwindow>=0.0.9",
+    "streamlit>=1.53.0",
 ]
 [project.scripts]
 wtfcode = "main:start_cli"
