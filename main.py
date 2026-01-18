@@ -577,7 +577,7 @@ def start_cli() -> None:
                 else:
                     console.print(f"[bold red]Error:[/bold red] File '{file_to_add}' not found.")
                 continue
-            if query.startswith('/models'):
+            if query.startswith('/models') or query.startswith('/model'):
                 console.print(f"\n[bold yellow]Fetching available models for {provider}...[/bold yellow]")
                 available_models = fetch_available_models(provider)
                 if available_models:
@@ -588,7 +588,7 @@ def start_cli() -> None:
                         console.print(f"  ... and {len(available_models) - 20} more")
                     
                     # Prompt for model selection
-                    selected_model = Prompt.ask("\n[bold white]Enter model name (or press Enter to skip)[/bold white]", default="")
+                    selected_model = Prompt.ask("\n[bold white]Enter model name (or press Enter to skip to default)[/bold white]", default="deepseek/deepseek-v3.2")
                     if selected_model:
                         if selected_model in available_models:
                             assistant.model = selected_model
