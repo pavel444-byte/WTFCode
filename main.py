@@ -95,10 +95,15 @@ def edit_file(path: str, old_str: str, new_str: str) -> str:
     except Exception as e:
         return f"Error editing file {path}: {str(e)}"
 
-def execute_command(command: str) -> str:
+def execute_command(command: str, silent: bool = False) -> str:
     try:
-        console.print(Panel(f"[bold yellow]Command:[/bold yellow] {command}", title="Executing Bash", border_style="yellow"))
+        if not silent:
+            console.print(Panel(f"[bold yellow]Command:[/bold yellow] {command}", title="Executing Bash", border_style="yellow"))
         result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=120)
+        
+        if silent:
+            return (result.stdout + result.stderr).strip()
+
         output = result.stdout
         if result.stderr:
             output += f"\n--- Errors ---\n{result.stderr}"
@@ -114,6 +119,28 @@ def glob_search(pattern: str) -> str:
         return "\n".join([str(f) for f in files if f.is_file()]) or "No files found matching pattern."
     except Exception as e:
         return f"Error during glob search: {str(e)}"
+
+def git_commit(message: str) -> str:
+    """Commit all changes in the repository with the given message."""
+    try:
+        # Check if it's a git repo
+        if not os.path.exists(".git"):
+            return "Error: Not a git repository."
+        
+        # Add all changes
+        subprocess.run(["git", "add", "."], check=True, capture_output=True)
+        
+        # Commit
+        result = subprocess.run(["git", "commit", "-m", message], capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            return f"Successfully committed changes: {message}"
+        elif "nothing to commit" in result.stdout or "nothing to commit" in result.stderr:
+            return "Nothing to commit, working tree clean."
+        else:
+            return f"Error committing changes: {result.stderr or result.stdout}"
+    except Exception as e:
+        return f"Error during git commit: {str(e)}"
 
 def get_latest_github_version(repo_url: str = "https://github.com/pavel444-byte/WTFcode.git") -> str:
     """Fetch the latest version/tag from the GitHub repository."""
@@ -220,6 +247,20 @@ TOOLS = [
                 "required": ["pattern"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "git_commit",
+            "description": "Commit all changes in the repository with a descriptive message.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string", "description": "The commit message."}
+                },
+                "required": ["message"]
+            }
+        }
     }
 ]
 
@@ -266,8 +307,9 @@ You help users by modifying code, running commands, and answering questions.
 Guidelines:
 1. When asked to fix/add features, use 'glob_search' to find files, 'read_file' to understand them, and 'edit_file' or 'write_file' to apply changes.
 2. Always verify your work by running tests or the code using 'execute_command' if applicable.
-3. Be concise and professional.
-4. If a command is dangerous, warn the user first (though in this CLI, they are auto-executed)."""}
+3. After making changes to the code, use 'git_commit' to commit your changes with a descriptive message.
+4. Be concise and professional.
+5. If a command is dangerous, warn the user first (though in this CLI, they are auto-executed)."""}
         ]
 
     def _validate_model(self) -> None:
@@ -293,6 +335,7 @@ Guidelines:
                 elif name == "edit_file": res = edit_file(**args)
                 elif name == "execute_command": res = execute_command(**args)
                 elif name == "glob_search": res = glob_search(**args)
+                elif name == "git_commit": res = git_commit(**args)
                 else: res = f"Unknown tool: {name}"
             
             results.append({
@@ -371,6 +414,36 @@ Guidelines:
             content = response.text if hasattr(response, 'text') else ""
         console.print(Panel(Markdown(content), title="Ask Mode", border_style="blue"))
 
+    def generate_commit_message(self) -> str:
+        """Generate a commit message based on git diff."""
+        diff = execute_command("git diff --cached", silent=True)
+        if not diff or not diff.strip():
+            diff = execute_command("git diff", silent=True)
+        
+        if not diff or not diff.strip():
+            return "Update"
+
+        prompt = f"Generate a concise, professional git commit message for these changes:\n\n{diff[:4000]}"
+        
+        # Use a simplified internal call to get just the message
+        messages = [
+            {"role": "system", "content": "You are a git commit message generator. Return ONLY the message, no quotes or extra text."},
+            {"role": "user", "content": prompt}
+        ]
+        
+        content = ""
+        if self.provider in ["openai", "openrouter"]:
+            response = self.client.chat.completions.create(model=self.model, messages=messages) # type: ignore
+            content = response.choices[0].message.content or "Update"
+        elif self.provider == "anthropic":
+            response = self.client.messages.create(model=self.model, max_tokens=100, messages=messages) # type: ignore
+            content = response.content[0].text if response.content else "Update" # type: ignore
+        elif self.provider == "gemini":
+            response = self.client.generate_content(f"System: You are a git commit message generator. Return ONLY the message.\nUser: {prompt}") # type: ignore
+            content = response.text if hasattr(response, 'text') else "Update"
+            
+        return content.strip().strip('"').strip("'")
+
 def start_cli() -> None:
 
     # Fetch latest version from GitHub
@@ -431,10 +504,22 @@ def start_cli() -> None:
                     "[bold cyan]/mode[/bold cyan] - Switch between Agent and Ask modes\n"
                     "[bold cyan]/models[/bold cyan] - List and select available models for the current provider\n"
                     "[bold cyan]/add {file}[/bold cyan] - Add a file's content to the conversation context\n"
+                    "[bold cyan]/commit[/bold cyan] - Generate a commit message and commit all changes\n"
                     "[bold cyan]/exit[/bold cyan] - Exit the application\n"
                     "[bold cyan]/help[/bold cyan] - Show this help message",
                     title="Help", border_style="cyan"
                 ))
+                continue
+            if query == '/commit':
+                with console.status("[bold cyan]Generating commit message..."):
+                    commit_msg = assistant.generate_commit_message()
+                
+                console.print(f"[bold green]Generated message:[/bold green] {commit_msg}")
+                confirm = Prompt.ask("Commit with this message?", choices=["y", "n"], default="y")
+                if confirm == "y":
+                    with console.status("[bold cyan]Committing..."):
+                        result = git_commit(commit_msg)
+                    console.print(f"[bold green]{result}[/bold green]")
                 continue
             if query.startswith('/add '):
                 file_to_add = query[5:].strip()
