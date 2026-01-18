@@ -379,9 +379,15 @@ Guidelines:
                     model=self.model,
                     messages=self.history,  # type: ignore
                     tools=TOOLS,  # type: ignore
-                    tool_choice="auto"
+                    tool_choice="auto",
+                    include_reasoning=True if "thinking" in self.model.lower() or "reasoning" in self.model.lower() or "o1" in self.model.lower() or "o3" in self.model.lower() else False
                 )
                 msg = response.choices[0].message
+                
+                # Handle thinking/reasoning content for OpenRouter/OpenAI
+                reasoning = getattr(msg, 'reasoning_content', None) or getattr(msg, 'reasoning', None)
+                if reasoning:
+                    console.print(Panel(Markdown(reasoning), title="Thinking Process", border_style="dim cyan"))
             elif self.provider == "anthropic":
                 response = self.client.messages.create(  # type: ignore
                     model=self.model,
@@ -390,6 +396,10 @@ Guidelines:
                     tools=TOOLS  # type: ignore
                 )
                 msg = response
+                # Handle Anthropic thinking (if supported by the model/API version)
+                for content_block in getattr(msg, 'content', []):
+                    if getattr(content_block, 'type', None) == 'thinking':
+                        console.print(Panel(Markdown(content_block.thinking), title="Thinking Process", border_style="dim cyan"))
             elif self.provider == "gemini":
                 console.print("[red]Gemini provider does not support agent mode with tools yet.[/red]")
                 return
@@ -423,15 +433,24 @@ Guidelines:
         if self.provider in ["openai", "openrouter"]:
             response = self.client.chat.completions.create(  # type: ignore
                 model=self.model,
-                messages=messages  # type: ignore
+                messages=messages,  # type: ignore
+                include_reasoning=True if "thinking" in self.model.lower() or "reasoning" in self.model.lower() or "o1" in self.model.lower() or "o3" in self.model.lower() else False
             )
-            content = response.choices[0].message.content or ""
+            msg = response.choices[0].message
+            reasoning = getattr(msg, 'reasoning_content', None) or getattr(msg, 'reasoning', None)
+            if reasoning:
+                console.print(Panel(Markdown(reasoning), title="Thinking Process", border_style="dim cyan"))
+            content = msg.content or ""
         elif self.provider == "anthropic":
             response = self.client.messages.create(  # type: ignore
                 model=self.model,
                 max_tokens=4096,
                 messages=messages  # type: ignore
             )
+            # Handle Anthropic thinking
+            for content_block in getattr(response, 'content', []):
+                if getattr(content_block, 'type', None) == 'thinking':
+                    console.print(Panel(Markdown(content_block.thinking), title="Thinking Process", border_style="dim cyan"))
             content = response.content[0].text if response.content else ""  # type: ignore
         elif self.provider == "gemini":
             response = self.client.generate_content(prompt)  # type: ignore
