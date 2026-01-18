@@ -317,10 +317,13 @@ Guidelines:
                 )
                 msg = response.choices[0].message
             elif self.provider == "anthropic":
+                system_msg = next((m["content"] for m in self.history if isinstance(m, dict) and m.get("role") == "system"), "")
+                user_messages = [m for m in self.history if isinstance(m, dict) and m.get("role") != "system"]
                 response = self.client.messages.create(  # type: ignore
                     model=self.model,
                     max_tokens=4096,
-                    messages=self.history,  # type: ignore
+                    system=system_msg,
+                    messages=user_messages,  # type: ignore
                     tools=TOOLS  # type: ignore
                 )
                 msg = response
@@ -328,7 +331,14 @@ Guidelines:
                 console.print("[red]Gemini provider does not support agent mode with tools yet.[/red]")
                 return
             
-            self.history.append(msg)  # type: ignore
+            if self.provider == "anthropic":
+                self.history.append({"role": msg.role, "content": msg.content})
+            else:
+                # Convert ChatCompletionMessage to dict for consistency
+                if hasattr(msg, "to_dict"):
+                    self.history.append(msg.to_dict())
+                else:
+                    self.history.append(msg)  # type: ignore
 
             if hasattr(msg, 'tool_calls') and msg.tool_calls:
                 tool_results = self.process_tool_calls(msg.tool_calls)
@@ -348,25 +358,30 @@ Guidelines:
 
     def ask_only(self, prompt: str) -> None:
         """Standard Q&A mode without tool access for speed."""
-        messages = [
-            {"role": "system", "content": "You are a helpful coding assistant. Answer the question directly."},
-            {"role": "user", "content": prompt}
-        ]
+        self.history.append({"role": "user", "content": prompt})
         content: str = ""
         if self.provider in ["openai", "openrouter"]:
             response = self.client.chat.completions.create(  # type: ignore
                 model=self.model,
-                messages=messages  # type: ignore
+                messages=self.history  # type: ignore
             )
-            content = response.choices[0].message.content or ""
+            msg = response.choices[0].message
+            content = msg.content or ""
+            self.history.append(msg)
         elif self.provider == "anthropic":
+            # Filter out system messages for the messages list and pass system separately
+            system_msg = next((m["content"] for m in self.history if m.get("role") == "system"), "")
+            user_messages = [m for m in self.history if m.get("role") != "system"]
             response = self.client.messages.create(  # type: ignore
                 model=self.model,
                 max_tokens=4096,
-                messages=messages  # type: ignore
+                system=system_msg,
+                messages=user_messages  # type: ignore
             )
             content = response.content[0].text if response.content else ""  # type: ignore
+            self.history.append({"role": "assistant", "content": content})
         elif self.provider == "gemini":
+            # Gemini doesn't use the same history format in this simple implementation
             response = self.client.generate_content(prompt)  # type: ignore
             content = response.text if hasattr(response, 'text') else ""
         console.print(Panel(Markdown(content), title="Ask Mode", border_style="blue"))
@@ -442,14 +457,12 @@ def start_cli() -> None:
                 console.print("[bold yellow]Restarting...[/bold yellow]")
                 os.execv(sys.executable, ['python'] + sys.argv)
             if query == '/new':
-                assistant.history = [m for m in assistant.history if (isinstance(m, dict) and m.get("role") == "system") or (not isinstance(m, dict) and getattr(m, "role", "") == "system")]
+                assistant.history = [m for m in assistant.history if (isinstance(m, dict) and m.get("role") == "system")]
                 console.clear()
                 time.sleep(0.5)
                 start_cli()
                 time.sleep(1.5)
                 console.print("[bold green]New session started. History cleared.[/bold green]")
-                continue
-            if query.startswith(' ') or query.startswith(''):
                 continue
             if query.startswith('/add '):
                 file_to_add = query[5:].strip()
