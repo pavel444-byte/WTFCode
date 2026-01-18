@@ -317,13 +317,10 @@ Guidelines:
                 )
                 msg = response.choices[0].message
             elif self.provider == "anthropic":
-                system_msg = next((m["content"] for m in self.history if isinstance(m, dict) and m.get("role") == "system"), "")
-                user_messages = [m for m in self.history if isinstance(m, dict) and m.get("role") != "system"]
                 response = self.client.messages.create(  # type: ignore
                     model=self.model,
                     max_tokens=4096,
-                    system=system_msg,
-                    messages=user_messages,  # type: ignore
+                    messages=self.history,  # type: ignore
                     tools=TOOLS  # type: ignore
                 )
                 msg = response
@@ -331,14 +328,7 @@ Guidelines:
                 console.print("[red]Gemini provider does not support agent mode with tools yet.[/red]")
                 return
             
-            if self.provider == "anthropic":
-                self.history.append({"role": msg.role, "content": msg.content})
-            else:
-                # Convert ChatCompletionMessage to dict for consistency
-                if hasattr(msg, "to_dict"):
-                    self.history.append(msg.to_dict())
-                else:
-                    self.history.append(msg)  # type: ignore
+            self.history.append(msg)  # type: ignore
 
             if hasattr(msg, 'tool_calls') and msg.tool_calls:
                 tool_results = self.process_tool_calls(msg.tool_calls)
@@ -353,35 +343,30 @@ Guidelines:
             elif self.provider == "gemini":
                 content = ""
             if content:
-                console.print(Panel(Markdown(content), title="WTFCode Assistant", border_style="green"))
+                console.print(Panel(Markdown(content), title="CodeAssist", border_style="green"))
             break
 
     def ask_only(self, prompt: str) -> None:
         """Standard Q&A mode without tool access for speed."""
-        self.history.append({"role": "user", "content": prompt})
+        messages = [
+            {"role": "system", "content": "You are a helpful coding assistant. Answer the question directly."},
+            {"role": "user", "content": prompt}
+        ]
         content: str = ""
         if self.provider in ["openai", "openrouter"]:
             response = self.client.chat.completions.create(  # type: ignore
                 model=self.model,
-                messages=self.history  # type: ignore
+                messages=messages  # type: ignore
             )
-            msg = response.choices[0].message
-            content = msg.content or ""
-            self.history.append(msg)
+            content = response.choices[0].message.content or ""
         elif self.provider == "anthropic":
-            # Filter out system messages for the messages list and pass system separately
-            system_msg = next((m["content"] for m in self.history if m.get("role") == "system"), "")
-            user_messages = [m for m in self.history if m.get("role") != "system"]
             response = self.client.messages.create(  # type: ignore
                 model=self.model,
                 max_tokens=4096,
-                system=system_msg,
-                messages=user_messages  # type: ignore
+                messages=messages  # type: ignore
             )
             content = response.content[0].text if response.content else ""  # type: ignore
-            self.history.append({"role": "assistant", "content": content})
         elif self.provider == "gemini":
-            # Gemini doesn't use the same history format in this simple implementation
             response = self.client.generate_content(prompt)  # type: ignore
             content = response.text if hasattr(response, 'text') else ""
         console.print(Panel(Markdown(content), title="Ask Mode", border_style="blue"))
@@ -395,8 +380,9 @@ def start_cli() -> None:
         time.sleep(1.8)
     console.print(Panel.fit(
         "[bold green]WTFcode[/bold green]\n"
-        "Auto Code Edit | Agent Mode | Ask Mode | Auto Bash\n"
-        f"[dim]Latest: {latest_version}[/dim]",
+        "Auto Code Edit | Agent Mode | Ask Mode | Auto Bash",
+        subtitle=f"[dim]{latest_version}[/dim]",
+        border_style="green"
     ))
     
     # Try to get provider from .env, otherwise prompt user
@@ -426,15 +412,15 @@ def start_cli() -> None:
         try:
             query = Prompt.ask(f"[bold {('cyan' if mode == 'agent' else 'blue')}]{mode}[/bold {('cyan' if mode == 'agent' else 'blue')}] [green]>").strip()
             
-            if query.lower() == '/exit':
+            if query == '/exit':
                 time.sleep(1.6)
-            with console.status("[bold magenta]Exiting WTFcode...[/bold magenta]"):
-                time.sleep(1.6)
-            with console.status("[bold magenta]Saving all...[/bold magenta]"):
-                time.sleep(1.5)
-            with console.status("[bold magenta]Exiting...[/bold magenta]"):
-                time.sleep(1.4)
-                exit()
+                with console.status("[bold magenta]Exiting WTFcode...[/bold magenta]"):
+                    time.sleep(1.6)
+                with console.status("[bold magenta]Saving all...[/bold magenta]"):
+                    time.sleep(1.5)
+                with console.status("[bold magenta]Exiting...[/bold magenta]"):
+                    time.sleep(1.4)
+                    exit()
             
             if query == '/mode':
                 mode = Prompt.ask("\n[bold white]Switch Mode[/bold white] ([cyan]agent[/cyan]/[blue]ask[/blue])", choices=["agent", "ask"], default=mode).lower()
