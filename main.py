@@ -375,17 +375,23 @@ Guidelines:
         while True:
             msg: Any = None
             if self.provider in ["openai", "openrouter"]:
-                response = self.client.chat.completions.create(  # type: ignore
-                    model=self.model,
-                    messages=self.history,  # type: ignore
-                    tools=TOOLS,  # type: ignore
-                    tool_choice="auto",
-                    include_reasoning=True if "thinking" in self.model.lower() or "reasoning" in self.model.lower() or "o1" in self.model.lower() or "o3" in self.model.lower() else False
-                )
+                # Prepare request parameters
+                params = {
+                    "model": self.model,
+                    "messages": self.history,  # type: ignore
+                    "tools": TOOLS,  # type: ignore
+                    "tool_choice": "auto"
+                }
+                
+                # Add reasoning for OpenRouter if applicable
+                if self.provider == "openrouter" and any(x in self.model.lower() for x in ["thinking", "reasoning", "o1", "o3"]):
+                    params["include_reasoning"] = True # type: ignore
+
+                response = self.client.chat.completions.create(**params)  # type: ignore
                 msg = response.choices[0].message
                 
                 # Handle thinking/reasoning content for OpenRouter/OpenAI
-                reasoning = getattr(msg, 'reasoning_content', None) or getattr(msg, 'reasoning', None)
+                reasoning = getattr(msg, 'reasoning_content', None) or (msg.extra_body.get('reasoning') if hasattr(msg, 'extra_body') and msg.extra_body else None)
                 if reasoning:
                     console.print(Panel(Markdown(reasoning), title="Thinking Process", border_style="dim cyan"))
             elif self.provider == "anthropic":
@@ -431,13 +437,19 @@ Guidelines:
         ]
         content: str = ""
         if self.provider in ["openai", "openrouter"]:
-            response = self.client.chat.completions.create(  # type: ignore
-                model=self.model,
-                messages=messages,  # type: ignore
-                include_reasoning=True if "thinking" in self.model.lower() or "reasoning" in self.model.lower() or "o1" in self.model.lower() or "o3" in self.model.lower() else False
-            )
+            # Prepare request parameters
+            params = {
+                "model": self.model,
+                "messages": messages,  # type: ignore
+            }
+            
+            # Add reasoning for OpenRouter if applicable
+            if self.provider == "openrouter" and any(x in self.model.lower() for x in ["thinking", "reasoning", "o1", "o3"]):
+                params["include_reasoning"] = True # type: ignore
+
+            response = self.client.chat.completions.create(**params)  # type: ignore
             msg = response.choices[0].message
-            reasoning = getattr(msg, 'reasoning_content', None) or getattr(msg, 'reasoning', None)
+            reasoning = getattr(msg, 'reasoning_content', None) or (msg.extra_body.get('reasoning') if hasattr(msg, 'extra_body') and msg.extra_body else None)
             if reasoning:
                 console.print(Panel(Markdown(reasoning), title="Thinking Process", border_style="dim cyan"))
             content = msg.content or ""
