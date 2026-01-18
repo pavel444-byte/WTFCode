@@ -17,6 +17,8 @@ try:
     from rich.live import Live
     from rich.prompt import Prompt
     from dotenv import load_dotenv
+    from win11toast import toast
+    import pygetwindow as gw
 except ImportError:
     print("Error: Missing dependencies. Run 'uv sync'")
     sys.exit(1)
@@ -24,6 +26,27 @@ except ImportError:
 load_dotenv()
 
 console = Console()
+
+def is_app_in_background() -> bool:
+    """Check if the current terminal window is in the background."""
+    try:
+        active_window = gw.getActiveWindow()
+        if not active_window:
+            return True
+        # Check if "WTFcode" or the current terminal title is in the active window title
+        # This is a bit heuristic as terminal titles vary
+        title = active_window.title.lower()
+        return not ("wtfcode" in title or "powershell" in title or "cmd" in title or "terminal" in title)
+    except Exception:
+        return True
+
+def send_notification(title: str, message: str):
+    """Send a Windows notification if the app is in the background."""
+    if is_app_in_background():
+        try:
+            toast(title, message, duration='short')
+        except Exception:
+            pass
 
 def fetch_available_models(provider: str) -> List[str]:
     """Fetch available models for the given provider."""
@@ -386,7 +409,8 @@ Guidelines:
             elif self.provider == "gemini":
                 content = ""
             if content:
-                console.print(Panel(Markdown(content), title="CodeAssist", border_style="green"))
+                console.print(Panel(Markdown(content), title="WTFCode", border_style="green"))
+                send_notification("WTFcode: AI Answered", content[:100] + "..." if len(content) > 100 else content)
             break
 
     def ask_only(self, prompt: str) -> None:
@@ -413,6 +437,7 @@ Guidelines:
             response = self.client.generate_content(prompt)  # type: ignore
             content = response.text if hasattr(response, 'text') else ""
         console.print(Panel(Markdown(content), title="Ask Mode", border_style="blue"))
+        send_notification("WTFcode: AI Answered", content[:100] + "..." if len(content) > 100 else content)
 
     def generate_commit_message(self) -> str:
         """Generate a commit message based on git diff."""

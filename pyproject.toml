@@ -10,7 +10,9 @@ dependencies = [
     "google-genai",
     "rich",
     "python-dotenv",
-    "requests"
+    "requests",
+    "win11toast>=0.36.3",
+    "pygetwindow>=0.0.9",
 ]
 [project.scripts]
 wtfcode = "main:start_cli"
