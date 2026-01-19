@@ -55,5 +55,14 @@ def load_config() -> Dict[str, Any]:
         print(f"Error loading config: {e}")
         return default_config
 
+def init_config() -> str:
+    """Explicitly initialize the config directory and file."""
+    config_path = get_config_path()
+    if config_path.exists():
+        return f"Configuration already exists at {config_path}"
+    
+    load_config() # This creates the file if it doesn't exist
+    return f"Configuration initialized at {config_path}"
+
 # Global config instance
 config = load_config()
