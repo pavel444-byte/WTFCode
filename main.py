@@ -19,11 +19,19 @@ try:
     from dotenv import load_dotenv
     from win11toast import toast
     import pygetwindow as gw
+    from ya_config import config
 except ImportError:
     print("Error: Missing dependencies. Run 'uv sync'")
     sys.exit(1)
 
 load_dotenv()
+
+# Update environment variables from config if they are not already set
+if config.get("api_keys"):
+    for provider, key in config["api_keys"].items():
+        env_var = f"{provider.upper()}_API_KEY"
+        if key and not os.getenv(env_var):
+            os.environ[env_var] = key
 
 console = Console()
 
