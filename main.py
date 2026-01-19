@@ -641,27 +641,36 @@ def start_cli() -> None:
                     "[bold cyan]/web[/bold cyan] - Start the Streamlit web interface\n"
                     "[bold cyan]/add {file}[/bold cyan] - Add a file's content to the conversation context\n"
                     "[bold cyan]/commit[/bold cyan] - Generate a commit message and commit all changes\n"
-                    "[bold cyan]/init[/bold cyan] - Initialize config folder or AGENTS.md\n"
+                    "[bold cyan]/init[/bold cyan] - Initialize AGENTS.md\n"
+                    "[bold cyan]/config {option}[/bold cyan] - Manage config (reload, create)\n"
                     "[bold cyan]/exit[/bold cyan] - Exit the application\n"
                     "[bold cyan]/help[/bold cyan] - Show this help message",
                     title="Help", border_style="cyan"
                 ))
                 continue
             if query == '/init':
-                choice = Prompt.ask("\n[bold white]Initialize[/bold white] ([cyan]config[/cyan]/[green]agents[/green])", choices=["config", "agents"], default="config")
-                if choice == "config":
+                agents_path = Path("AGENTS.md")
+                if agents_path.exists():
+                    console.print("[bold yellow]AGENTS.md already exists.[/bold yellow]")
+                else:
+                    content = "### Agents Instructions\nUse uv for installing, running, other (python)\n"
+                    with open(agents_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    console.print("[bold green]AGENTS.md created successfully.[/bold green]")
+                continue
+            if query.startswith('/config'):
+                parts = query.split()
+                option = parts[1] if len(parts) > 1 else Prompt.ask("\n[bold white]Config Option[/bold white] ([cyan]reload[/cyan]/[green]create[/green])", choices=["reload", "create"], default="reload")
+                
+                if option == "create":
                     with console.status("[bold cyan]Initializing config..."):
                         result = init_config()
                     console.print(f"[bold green]{result}[/bold green]")
-                else:
-                    agents_path = Path("AGENTS.md")
-                    if agents_path.exists():
-                        console.print("[bold yellow]AGENTS.md already exists.[/bold yellow]")
-                    else:
-                        content = "### Agents Instructions\nUse uv for installing, running, other (python)\n"
-                        with open(agents_path, "w", encoding="utf-8") as f:
-                            f.write(content)
-                        console.print("[bold green]AGENTS.md created successfully.[/bold green]")
+                elif option == "reload":
+                    with console.status("[bold cyan]Reloading config..."):
+                        # Assuming init_config or similar reloads the config object
+                        result = init_config()
+                    console.print(f"[bold green]Config reloaded: {result}[/bold green]")
                 continue
             if query == '/commit':
                 with console.status("[bold cyan]Generating commit message..."):
