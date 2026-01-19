@@ -15,6 +15,7 @@ dependencies = [
     "pygetwindow>=0.0.9",
     "streamlit>=1.53.0",
     "pyyaml>=6.0.3",
+    "customtkinter>=5.2.2",
 ]
 [project.scripts]
 wtfcode = "main:start_cli"
