@@ -20,6 +20,7 @@ try:
     from win11toast import toast
     import pygetwindow as gw
     from ya_config import config, init_config
+    from theme_manager import ThemeManager
 except ImportError:
     print("Error: Missing dependencies. Run 'uv sync'")
     sys.exit(1)
@@ -33,7 +34,17 @@ if config.get("api_keys"):
         if key and not os.getenv(env_var):
             os.environ[env_var] = key
 
+# Update other settings from config
+if not os.getenv("PROVIDER") and config.get("provider"):
+    os.environ["PROVIDER"] = config["provider"]
+if not os.getenv("MODEL") and config.get("model"):
+    os.environ["MODEL"] = config["model"]
+if config.get("settings") and "theme" in config["settings"]:
+    if not os.getenv("THEME"):
+        os.environ["THEME"] = config["settings"]["theme"]
+
 console = Console()
+theme_manager = ThemeManager(console)
 
 def is_app_in_background() -> bool:
     """Check if the current terminal window is in the background."""
@@ -88,7 +99,7 @@ def fetch_available_models(provider: str) -> List[str]:
             return []
         return []
     except Exception as e:
-        console.print(f"[red]Error fetching models for {provider}: {str(e)}[/red]")
+        console.print(f"[{theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['error']}]Error fetching models for {provider}: {str(e)}[/{theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['error']}]")
         return []
 
 def read_file(path: str) -> str:
@@ -120,9 +131,9 @@ def write_file(path: str, content: str) -> str:
                 tofile=f"b/{path}"
             ))
             if diff:
-                console.print(Panel("".join(diff), title=f"Changes in {path}", border_style="blue"))
+                console.print(Panel("".join(diff), title=f"Changes in {path}", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['panel.border']))
         else:
-            console.print(Panel(f"New file created: {path}", border_style="green"))
+            console.print(Panel(f"New file created: {path}", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['success']))
 
         with open(abs_path, 'w', encoding='utf-8') as f:
             f.write(content)
@@ -151,7 +162,7 @@ def edit_file(path: str, old_str: str, new_str: str) -> str:
             tofile=f"b/{path}"
         ))
         if diff:
-            console.print(Panel("".join(diff), title=f"Changes in {path}", border_style="blue"))
+            console.print(Panel("".join(diff), title=f"Changes in {path}", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['panel.border']))
 
         with open(abs_path, 'w', encoding='utf-8') as f:
             f.write(new_content)
@@ -162,7 +173,8 @@ def edit_file(path: str, old_str: str, new_str: str) -> str:
 def execute_command(command: str, silent: bool = False) -> str:
     try:
         if not silent:
-            console.print(Panel(f"[bold yellow]Command:[/bold yellow] {command}", title="Executing Bash", border_style="yellow"))
+            theme_color = theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['warning']
+            console.print(Panel(f"[bold {theme_color}]Command:[/bold {theme_color}] {command}", title="Executing Bash", border_style=theme_color))
         result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=120)
         
         if silent:
@@ -393,7 +405,8 @@ Guidelines:
             name = tc.function.name
             args = json.loads(tc.function.arguments)
             
-            with console.status(f"[bold cyan]Tool Call: {name}({list(args.values())[0] if args else ''})..."):
+            info_color = theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['info']
+            with console.status(f"[bold {info_color}]Tool Call: {name}({list(args.values())[0] if args else ''})..."):
                 if name == "read_file": res = read_file(**args)
                 elif name == "write_file": res = write_file(**args)
                 elif name == "edit_file": res = edit_file(**args)
@@ -448,7 +461,7 @@ Guidelines:
                         msg.content = msg.content.replace(thought_match.group(0), "").strip()
 
                 if reasoning:
-                    console.print(Panel(Markdown(reasoning), title="Thinking Process", border_style="dim cyan"))
+                    console.print(Panel(Markdown(reasoning), title="Thinking Process", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['thinking']))
             elif self.provider == "anthropic":
                 response = self.client.messages.create(  # type: ignore
                     model=self.model,
@@ -460,7 +473,7 @@ Guidelines:
                 # Handle Anthropic thinking (if supported by the model/API version)
                 for content_block in getattr(msg, 'content', []):
                     if getattr(content_block, 'type', None) == 'thinking':
-                        console.print(Panel(Markdown(content_block.thinking), title="Thinking Process", border_style="dim cyan"))
+                        console.print(Panel(Markdown(content_block.thinking), title="Thinking Process", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['thinking']))
             elif self.provider == "gemini":
                 console.print("[red]Gemini provider does not support agent mode with tools yet.[/red]")
                 return
@@ -480,7 +493,7 @@ Guidelines:
             elif self.provider == "gemini":
                 content = ""
             if content:
-                console.print(Panel(Markdown(content), title="WTFCode", border_style="green"))
+                console.print(Panel(Markdown(content), title="WTFCode", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['success']))
                 send_notification("WTFcode: AI Answered", content[:100] + "..." if len(content) > 100 else content)
             break
 
@@ -520,7 +533,7 @@ Guidelines:
                     msg.content = msg.content.replace(thought_match.group(0), "").strip()
 
             if reasoning:
-                console.print(Panel(Markdown(reasoning), title="Thinking Process", border_style="dim cyan"))
+                console.print(Panel(Markdown(reasoning), title="Thinking Process", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['thinking']))
             content = msg.content or ""
         elif self.provider == "anthropic":
             response = self.client.messages.create(  # type: ignore
@@ -531,12 +544,12 @@ Guidelines:
             # Handle Anthropic thinking
             for content_block in getattr(response, 'content', []):
                 if getattr(content_block, 'type', None) == 'thinking':
-                    console.print(Panel(Markdown(content_block.thinking), title="Thinking Process", border_style="dim cyan"))
+                    console.print(Panel(Markdown(content_block.thinking), title="Thinking Process", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['thinking']))
             content = response.content[0].text if response.content else ""  # type: ignore
         elif self.provider == "gemini":
             response = self.client.generate_content(prompt)  # type: ignore
             content = response.text if hasattr(response, 'text') else ""
-        console.print(Panel(Markdown(content), title="Ask Mode", border_style="blue"))
+        console.print(Panel(Markdown(content), title="Ask Mode", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['panel.border']))
         send_notification("WTFcode: AI Answered", content[:100] + "..." if len(content) > 100 else content)
 
     def generate_commit_message(self) -> str:
@@ -582,21 +595,25 @@ def start_cli() -> None:
         return
 
     # Fetch latest version from GitHub
-    with console.status("[bold cyan]Fetching latest version from GitHub..."):
+    info_color = theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['info']
+    with console.status(f"[bold {info_color}]Fetching latest version from GitHub..."):
         latest_version = get_latest_github_version()
-    with console.status("[bold cyan]Starting WTFcode CLI..."):
+    with console.status(f"[bold {info_color}]Starting WTFcode CLI..."):
         time.sleep(1.8)
+    
+    success_color = theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['success']
     console.print(Panel.fit(
-        "[bold green]WTFcode[/bold green]\n"
+        f"[bold {success_color}]WTFcode[/bold {success_color}]\n"
         "Auto Code Edit | Agent Mode | Ask Mode | Auto Bash",
         subtitle=f"[dim]{latest_version}[/dim]",
-        border_style="green"
+        border_style=success_color
     ))
     
     # Try to get provider from .env, otherwise prompt user
+    provider_prompt = f"[bold white]Provider[/bold white] ([cyan]openai[/cyan]/[green]anthropic[/green]/[yellow]openrouter[/yellow]/[blue]gemini[/blue])"
     provider = get_config_or_prompt(
         "PROVIDER",
-        "[bold white]Provider[/bold white] ([cyan]openai[/cyan]/[green]anthropic[/green]/[yellow]openrouter[/yellow]/[blue]gemini[/blue])",
+        provider_prompt,
         choices=["openai", "anthropic", "openrouter", "gemini"],
         default="openai"
     )
@@ -618,7 +635,8 @@ def start_cli() -> None:
     
     while True:
         try:
-            query = Prompt.ask(f"[bold {('cyan' if mode == 'agent' else 'blue')}]{mode}[/bold {('cyan' if mode == 'agent' else 'blue')}] [green]>").strip()
+            mode_color = theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['prompt']
+            query = Prompt.ask(f"[{mode_color}]{mode}[/{mode_color}] [green]>").strip()
             
             if query == '/exit':
                 time.sleep(1.6)
@@ -630,13 +648,22 @@ def start_cli() -> None:
                     time.sleep(1.4)
                     exit()
             
+            if query == '/theme':
+                themes = theme_manager.list_themes()
+                theme_choice = Prompt.ask(f"\n[bold white]Select Theme[/bold white] ({'/'.join(themes)})", choices=themes, default=theme_manager.current_theme_name)
+                theme_manager.apply_theme(theme_choice)
+                console.print(f"[bold {theme_manager.DEFAULT_THEMES[theme_choice]['success']}]Theme switched to: {theme_choice}[/bold {theme_manager.DEFAULT_THEMES[theme_choice]['success']}]")
+                continue
+
             if query == '/mode':
                 mode = Prompt.ask("\n[bold white]Switch Mode[/bold white] ([cyan]agent[/cyan]/[blue]ask[/blue])", choices=["agent", "ask"], default=mode).lower()
                 console.print(f"[bold green]Mode switched to:[/bold green] {mode}")
                 continue
             if query == '/help':
+                help_color = theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['info']
                 console.print(Panel(
                     "[bold cyan]/mode[/bold cyan] - Switch between Agent and Ask modes\n"
+                    "[bold cyan]/theme[/bold cyan] - Change terminal theme\n"
                     "[bold cyan]/models[/bold cyan] - List and select available models for the current provider\n"
                     "[bold cyan]/web[/bold cyan] - Start the Streamlit web interface\n"
                     "[bold cyan]/add {file}[/bold cyan] - Add a file's content to the conversation context\n"
@@ -645,7 +672,7 @@ def start_cli() -> None:
                     "[bold cyan]/config {option}[/bold cyan] - Manage config (reload, create)\n"
                     "[bold cyan]/exit[/bold cyan] - Exit the application\n"
                     "[bold cyan]/help[/bold cyan] - Show this help message",
-                    title="Help", border_style="cyan"
+                    title="Help", border_style=help_color
                 ))
                 continue
             if query == '/init':
