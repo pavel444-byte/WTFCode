@@ -594,6 +594,16 @@ def start_cli() -> None:
             sys.exit(0)
         return
 
+    # Check for DESKTOP_MODE in .env
+    if os.getenv("DESKTOP_MODE", "").lower() == "true":
+        console.print("[bold green]DESKTOP_MODE detected in .env. Starting Desktop UI...[/bold green]")
+        try:
+            subprocess.run(["python", "dekstop.py"])
+        except KeyboardInterrupt:
+            console.print("\n[bold magenta]Exiting WTFcode...[/bold magenta]")
+            sys.exit(0)
+        return
+
     # Fetch latest version from GitHub
     info_color = theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['info']
     with console.status(f"[bold {info_color}]Fetching latest version from GitHub..."):
