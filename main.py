@@ -11,6 +11,7 @@ try:
     import openai
     import anthropic
     import google.genai as genai
+    import customtkinter as ctk
     from rich.console import Console
     from rich.markdown import Markdown
     from rich.panel import Panel
@@ -598,7 +599,7 @@ def start_cli() -> None:
     if os.getenv("DESKTOP_MODE", "").lower() == "true":
         console.print("[bold green]DESKTOP_MODE detected in .env. Starting Desktop UI...[/bold green]")
         try:
-            subprocess.run(["python", "dekstop.py"])
+            subprocess.run(["uv", "run", "python", "dekstop.py"])
         except KeyboardInterrupt:
             console.print("\n[bold magenta]Exiting WTFcode...[/bold magenta]")
             sys.exit(0)
@@ -676,6 +677,7 @@ def start_cli() -> None:
                     "[bold cyan]/theme[/bold cyan] - Change terminal theme\n"
                     "[bold cyan]/models[/bold cyan] - List and select available models for the current provider\n"
                     "[bold cyan]/web[/bold cyan] - Start the Streamlit web interface\n"
+                    "[bold cyan]/desktop[/bold cyan] - Start the Desktop UI\n"
                     "[bold cyan]/add {file}[/bold cyan] - Add a file's content to the conversation context\n"
                     "[bold cyan]/commit[/bold cyan] - Generate a commit message and commit all changes\n"
                     "[bold cyan]/init[/bold cyan] - Initialize AGENTS.md\n"
@@ -726,6 +728,13 @@ def start_cli() -> None:
                     subprocess.run(["streamlit", "run", "web.py"])
                 except KeyboardInterrupt:
                     console.print("\n[bold magenta]Exiting Streamlit...[/bold magenta]")
+                continue
+            if query == '/desktop':
+                console.print("[bold green]Starting Desktop UI...[/bold green]")
+                try:
+                    subprocess.run(["uv", "run", "python", "dekstop.py"])
+                except KeyboardInterrupt:
+                    console.print("\n[bold magenta]Exiting Desktop UI...[/bold magenta]")
                 continue
             if query.startswith('/add '):
                 file_to_add = query[5:].strip()
