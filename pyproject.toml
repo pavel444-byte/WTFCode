@@ -20,6 +20,7 @@ dependencies = [
 [project.scripts]
 wtfcode = "main:start_cli"
 WTFcode = "main:start_cli"
+WTFdektop = "main:start_desktop"
 [build-system]
 requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"

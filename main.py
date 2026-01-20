@@ -26,7 +26,16 @@ except ImportError:
     sys.exit(1)
 
 load_dotenv()
-
+def start_desktop() -> None:
+    """Start the desktop application."""
+    try:
+        from dekstop import WTFCodeDesktop
+    except ImportError:
+        console.print("[bold red]Error:[/bold red] Missing dependencies for desktop mode. Run 'uv sync'")
+        sys.exit(1)
+    subprocess.run([sys.executable, "python", "dekstop.py"])
+    app = WTFCodeDesktop()
+    app.mainloop()
 # Update environment variables from config if they are not already set
 if config.get("api_keys"):
     for provider, key in config["api_keys"].items():
