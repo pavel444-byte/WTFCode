@@ -13,14 +13,14 @@ dependencies = [
     "requests",
     "win11toast>=0.36.3",
     "pygetwindow>=0.0.9",
-    "streamlit>=1.53.0",
+    "streamlit",
     "pyyaml>=6.0.3",
     "customtkinter>=5.2.2",
 ]
 [project.scripts]
 wtfcode = "main:start_cli"
 WTFcode = "main:start_cli"
-WTFdektop = "main:start_desktop"
+WTFdesktop = "main:start_desktop"
 [build-system]
 requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
