@@ -19,10 +19,14 @@ try:
     from dotenv import load_dotenv
     from win11toast import toast
     import pygetwindow as gw
-    from ya_config import config, init_config
-    from theme_manager import ThemeManager
-except ImportError:
-    print("Error: [Missing dependencies. Please install them first]. Run 'uv sync'")
+    try:
+        from ya_config import config, init_config
+        from theme_manager import ThemeManager
+    except ImportError:
+        from .ya_config import config, init_config
+        from .theme_manager import ThemeManager
+except ImportError as e:
+    print(f"Error: [Missing dependencies: {e}]. Run 'uv sync'")
     sys.exit(1)
 
 load_dotenv()
