@@ -16,6 +16,7 @@ dependencies = [
     "streamlit",
     "pyyaml>=6.0.3",
     "customtkinter>=5.2.2",
+    "Pillow",
 ]
 [project.scripts]
 wtfcode = "main:start_cli"

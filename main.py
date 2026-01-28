@@ -22,7 +22,7 @@ try:
     from ya_config import config, init_config
     from theme_manager import ThemeManager
 except ImportError:
-    print("Error: Missing dependencies. Run 'uv sync'")
+    print("Error: [Missing dependencies. Please install them first]. Run 'uv sync'")
     sys.exit(1)
 
 load_dotenv()
