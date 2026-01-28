@@ -19,15 +19,25 @@ try:
     from dotenv import load_dotenv
     from win11toast import toast
     import pygetwindow as gw
-    try:
-        from ya_config import config, init_config
-        from theme_manager import ThemeManager
-    except ImportError:
-        from .ya_config import config, init_config
-        from .theme_manager import ThemeManager
 except ImportError as e:
     print(f"Error: [Missing dependencies: {e}]. Run 'uv sync'")
     sys.exit(1)
+
+# Import local modules with fallback for package imports
+try:
+    from ya_config import config, init_config
+    from theme_manager import ThemeManager
+except ImportError:
+    try:
+        from .ya_config import config, init_config
+        from .theme_manager import ThemeManager
+    except ImportError as e:
+        # If both fail, provide helpful error message
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        print(f"Error: Could not import local modules (ya_config, theme_manager).")
+        print(f"Make sure they are in: {current_dir}")
+        print(f"Original error: {e}")
+        sys.exit(1)
 
 load_dotenv()
 def start_desktop() -> None:

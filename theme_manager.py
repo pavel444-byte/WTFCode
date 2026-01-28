@@ -1,8 +1,17 @@
 from typing import Dict, Any
 from rich.theme import Theme
 from rich.console import Console
-from ya_config import config, get_config_path
 import yaml
+
+# Import local modules with fallback for package imports
+try:
+    from ya_config import config, get_config_path
+except ImportError:
+    try:
+        from .ya_config import config, get_config_path
+    except ImportError as e:
+        print(f"Error: Could not import ya_config module. {e}")
+        raise
 
 class ThemeManager:
     """Manages terminal themes using Rich."""
