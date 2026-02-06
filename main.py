@@ -62,9 +62,11 @@ if not os.getenv("PROVIDER") and config.get("provider"):
     os.environ["PROVIDER"] = config["provider"]
 if not os.getenv("MODEL") and config.get("model"):
     os.environ["MODEL"] = config["model"]
-if config.get("settings") and "theme" in config["settings"]:
-    if not os.getenv("THEME"):
+if config.get("settings"):
+    if "theme" in config["settings"] and not os.getenv("THEME"):
         os.environ["THEME"] = config["settings"]["theme"]
+    if "multi_line_output" in config["settings"] and not os.getenv("MULTI_LINE_OUTPUT"):
+        os.environ["MULTI_LINE_OUTPUT"] = str(config["settings"]["multi_line_output"]).lower()
 
 console = Console()
 theme_manager = ThemeManager(console)
@@ -198,6 +200,34 @@ def execute_command(command: str, silent: bool = False) -> str:
         if not silent:
             theme_color = theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['warning']
             console.print(Panel(f"[bold {theme_color}]Command:[/bold {theme_color}] {command}", title="Executing Bash", border_style=theme_color))
+        
+        multi_line = os.getenv("MULTI_LINE_OUTPUT", "true").lower() == "true"
+        
+        if multi_line and not silent:
+            # Use Live to show output as it comes
+            output_lines = []
+            with Live(console=console, refresh_per_second=4) as live:
+                process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                
+                # Ensure stdout and stderr are not None for type checking
+                if process.stdout is None or process.stderr is None:
+                    return "Error: Failed to capture command output."
+
+                while True:
+                    line = process.stdout.readline()
+                    if not line and process.poll() is not None:
+                        break
+                    if line:
+                        output_lines.append(line)
+                        live.update(Panel("".join(output_lines), title="Command Output", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['panel.border']))
+                
+                stderr = process.stderr.read()
+                if stderr:
+                    output_lines.append(f"\n--- Errors ---\n{stderr}")
+                    live.update(Panel("".join(output_lines), title="Command Output", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['panel.border']))
+            
+            return "".join(output_lines).strip() or "Command executed successfully (no output)."
+
         result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=120)
         
         if silent:
@@ -694,6 +724,7 @@ def start_cli() -> None:
                     "[bold cyan]/init[/bold cyan] - Initialize AGENTS.md\n"
                     "[bold cyan]/config {option}[/bold cyan] - Manage config (reload, create)\n"
                     "[bold cyan]/exit[/bold cyan] - Exit the application\n"
+                    "[bold cyan]/multiline[/bold cyan] - Toggle multi-line terminal output\n"
                     "[bold cyan]/help[/bold cyan] - Show this help message",
                     title="Help", border_style=help_color
                 ))
@@ -774,6 +805,13 @@ def start_cli() -> None:
                             console.print(f"[bold red]Error:[/bold red] Model '{selected_model}' not found.")
                 else:
                     console.print("[bold red]Could not fetch available models.[/bold red]")
+                continue
+
+            if query == '/multiline':
+                current = os.getenv("MULTI_LINE_OUTPUT", "true").lower() == "true"
+                new_val = not current
+                os.environ["MULTI_LINE_OUTPUT"] = str(new_val).lower()
+                console.print(f"[bold green]Multi-line output {'enabled' if new_val else 'disabled'}.[/bold green]")
                 continue
 
             if not query:

@@ -26,7 +26,9 @@ def load_config() -> Dict[str, Any]:
         },
         "settings": {
             "notifications": True,
-            "theme": "dark"
+            "theme": "dark",
+            "multi_line_output": True,
+            "web_mode": False
         }
     }
     
