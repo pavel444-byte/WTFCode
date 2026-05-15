@@ -66,5 +66,13 @@ def init_config() -> str:
     load_config() # This creates the file if it doesn't exist
     return f"Configuration initialized at {config_path}"
 
+def reload_config() -> Dict[str, Any]:
+    """Reload the global config dict in-place from disk."""
+    global config
+    new_config = load_config()
+    config.clear()
+    config.update(new_config)
+    return config
+
 # Global config instance
 config = load_config()
