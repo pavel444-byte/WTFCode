@@ -1,4 +1,5 @@
 # WTFCode
+Thank you, Devin for making this code more cool!
 
 A powerful CLI-based coding assistant that helps you write, edit, and manage code autonomously.
 
