@@ -60,6 +60,14 @@ if config.get("api_keys"):
         if key and not os.getenv(env_var):
             os.environ[env_var] = key
 
+# Update Azure OpenAI settings from config
+if config.get("azure_openai"):
+    azure_cfg = config["azure_openai"]
+    if azure_cfg.get("endpoint") and not os.getenv("AZURE_OPENAI_ENDPOINT"):
+        os.environ["AZURE_OPENAI_ENDPOINT"] = azure_cfg["endpoint"]
+    if azure_cfg.get("api_version") and not os.getenv("AZURE_OPENAI_API_VERSION"):
+        os.environ["AZURE_OPENAI_API_VERSION"] = azure_cfg["api_version"]
+
 # Update other settings from config
 if not os.getenv("PROVIDER") and config.get("provider"):
     os.environ["PROVIDER"] = config["provider"]
@@ -100,6 +108,14 @@ def fetch_available_models(provider: str) -> List[str]:
     try:
         if provider == "openai":
             client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            models = client.models.list()
+            return [m.id for m in models.data]
+        elif provider == "azure_openai":
+            client = openai.AzureOpenAI(
+                api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+                azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT", ""),
+                api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+            )
             models = client.models.list()
             return [m.id for m in models.data]
         elif provider == "openrouter":
@@ -401,12 +417,14 @@ _model_cache: Dict[str, List[str]] = {}
 
 
 class CodeAssist:
-    client: Union[openai.OpenAI, "anthropic.Anthropic", "genai.Client"]
+    client: Union[openai.OpenAI, openai.AzureOpenAI, "anthropic.Anthropic", "genai.Client"]
 
     def __init__(self, provider: str = "openai", model: Optional[str] = None) -> None:
         self.provider = provider
         if model is None:
             if provider == "openai":
+                model = "gpt-4o"
+            elif provider == "azure_openai":
                 model = "gpt-4o"
             elif provider == "anthropic":
                 model = "claude-3-5-sonnet-20241022"
@@ -427,6 +445,21 @@ class CodeAssist:
                 sys.exit(1)
             base_url = "https://openrouter.ai/api/v1" if provider == "openrouter" else None
             self.client = openai.OpenAI(api_key=api_key, base_url=base_url)
+        elif provider == "azure_openai":
+            api_key = os.getenv("AZURE_OPENAI_API_KEY")
+            endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+            if not api_key:
+                console.print("[bold red]Error:[/bold red] AZURE_OPENAI_API_KEY not found in environment or .env file.")
+                sys.exit(1)
+            if not endpoint:
+                console.print("[bold red]Error:[/bold red] AZURE_OPENAI_ENDPOINT not found in environment or .env file.")
+                sys.exit(1)
+            api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+            self.client = openai.AzureOpenAI(
+                api_key=api_key,
+                azure_endpoint=endpoint,
+                api_version=api_version
+            )
         elif provider == "anthropic":
             api_key = os.getenv("ANTHROPIC_API_KEY")
             if not api_key:
@@ -494,7 +527,7 @@ Guidelines:
     def _extract_reasoning(self, msg: Any) -> Optional[str]:
         """Extract reasoning/thinking content from a provider response message."""
         reasoning = None
-        if self.provider in ["openai", "openrouter"]:
+        if self.provider in ["openai", "openrouter", "azure_openai"]:
             reasoning = getattr(msg, 'reasoning_content', None) or (
                 msg.extra_body.get('reasoning') if hasattr(msg, 'extra_body') and msg.extra_body else None
             )
@@ -528,7 +561,7 @@ Guidelines:
         while True:
             msg: Any = None
             try:
-                if self.provider in ["openai", "openrouter"]:
+                if self.provider in ["openai", "openrouter", "azure_openai"]:
                     params: Dict[str, Any] = {
                         "model": self.model,
                         "messages": self.history,
@@ -579,7 +612,7 @@ Guidelines:
                 continue
 
             content: str = ""
-            if self.provider in ["openai", "openrouter"]:
+            if self.provider in ["openai", "openrouter", "azure_openai"]:
                 content = msg.content or ""
             elif self.provider == "anthropic":
                 content = msg.content[0].text if msg.content else ""
@@ -598,7 +631,7 @@ Guidelines:
         ]
         content: str = ""
         try:
-            if self.provider in ["openai", "openrouter"]:
+            if self.provider in ["openai", "openrouter", "azure_openai"]:
                 params: Dict[str, Any] = {
                     "model": self.model,
                     "messages": messages,
@@ -649,7 +682,7 @@ Guidelines:
         ]
         
         content = ""
-        if self.provider in ["openai", "openrouter"]:
+        if self.provider in ["openai", "openrouter", "azure_openai"]:
             response = self.client.chat.completions.create(model=self.model, messages=messages) # type: ignore
             content = response.choices[0].message.content or "Update"
         elif self.provider == "anthropic":
@@ -692,11 +725,11 @@ def start_cli() -> None:
     ))
     
     # Try to get provider from .env, otherwise prompt user
-    provider_prompt = f"[bold white]Provider[/bold white] ([cyan]openai[/cyan]/[green]anthropic[/green]/[yellow]openrouter[/yellow]/[blue]gemini[/blue])"
+    provider_prompt = f"[bold white]Provider[/bold white] ([cyan]openai[/cyan]/[green]anthropic[/green]/[yellow]openrouter[/yellow]/[blue]gemini[/blue]/[magenta]azure_openai[/magenta])"
     provider = get_config_or_prompt(
         "PROVIDER",
         provider_prompt,
-        choices=["openai", "anthropic", "openrouter", "gemini"],
+        choices=["openai", "anthropic", "openrouter", "gemini", "azure_openai"],
         default="openai"
     )
     
