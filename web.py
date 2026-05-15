@@ -34,7 +34,7 @@ def main():
         
         # Provider Selection
         current_provider = st.session_state.assistant.provider
-        providers = ["openai", "anthropic", "openrouter", "gemini", "azure_openai"]
+        providers = ["openai", "anthropic", "openrouter", "gemini", "azure_openai", "llama"]
         new_provider = st.selectbox(
             "Provider", 
             providers, 
@@ -129,7 +129,7 @@ def main():
                     ]
                     
                     content = ""
-                    if assistant.provider in ["openai", "openrouter", "azure_openai"]:
+                    if assistant.provider in ["openai", "openrouter", "azure_openai", "llama"]:
                         response = assistant.client.chat.completions.create(
                             model=assistant.model,
                             messages=messages

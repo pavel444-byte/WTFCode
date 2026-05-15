@@ -37,6 +37,13 @@ WTFCode uses the following tools to interact with your environment:
    PROVIDER=azure_openai
    ```
 
+   For Llama (via Ollama), install [Ollama](https://ollama.com) and set:
+   ```env
+   LLAMA_BASE_URL=http://localhost:11434
+   LLAMA_API_KEY=ollama
+   PROVIDER=llama
+   ```
+
 ## Usage
 
 Run the main script to start the assistant:
