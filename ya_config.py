@@ -23,11 +23,15 @@ def load_config() -> Dict[str, Any]:
             "anthropic": os.getenv("ANTHROPIC_API_KEY", ""),
             "google": os.getenv("GOOGLE_API_KEY", ""),
             "openrouter": os.getenv("OPENROUTER_API_KEY", ""),
-            "azure_openai": os.getenv("AZURE_OPENAI_API_KEY", "")
+            "azure_openai": os.getenv("AZURE_OPENAI_API_KEY", ""),
+            "llama": os.getenv("LLAMA_API_KEY", "ollama")
         },
         "azure_openai": {
             "endpoint": os.getenv("AZURE_OPENAI_ENDPOINT", ""),
             "api_version": os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+        },
+        "llama": {
+            "base_url": os.getenv("LLAMA_BASE_URL", "http://localhost:11434")
         },
         "settings": {
             "notifications": True,

@@ -68,6 +68,12 @@ if config.get("azure_openai"):
     if azure_cfg.get("api_version") and not os.getenv("AZURE_OPENAI_API_VERSION"):
         os.environ["AZURE_OPENAI_API_VERSION"] = azure_cfg["api_version"]
 
+# Update Llama/Ollama settings from config
+if config.get("llama"):
+    llama_cfg = config["llama"]
+    if llama_cfg.get("base_url") and not os.getenv("LLAMA_BASE_URL"):
+        os.environ["LLAMA_BASE_URL"] = llama_cfg["base_url"]
+
 # Update other settings from config
 if not os.getenv("PROVIDER") and config.get("provider"):
     os.environ["PROVIDER"] = config["provider"]
@@ -140,6 +146,16 @@ def fetch_available_models(provider: str) -> List[str]:
                 response = requests.get("https://generativelanguage.googleapis.com/v1beta/models", headers=headers)
                 if response.status_code == 200:
                     return [m["name"] for m in response.json().get("models", [])]
+            return []
+        elif provider == "llama":
+            import requests
+            base_url = os.getenv("LLAMA_BASE_URL", "http://localhost:11434")
+            try:
+                response = requests.get(f"{base_url}/api/tags")
+                if response.status_code == 200:
+                    return [m["name"] for m in response.json().get("models", [])]
+            except requests.ConnectionError:
+                console.print(f"[bold yellow]Warning:[/bold yellow] Could not connect to Ollama at {base_url}. Is Ollama running?")
             return []
         return []
     except Exception as e:
@@ -432,6 +448,8 @@ class CodeAssist:
                 model = "openai/gpt-4o"
             elif provider == "gemini":
                 model = "gemini-1.5-flash"
+            elif provider == "llama":
+                model = "llama3.2"
         self.model: str = model  # type: ignore
         
         # Validate model exists in provider (uses cache to avoid repeated API calls)
@@ -472,6 +490,10 @@ class CodeAssist:
                 console.print("[bold red]Error:[/bold red] GOOGLE_API_KEY not found in environment or .env file.")
                 sys.exit(1)
             self.client = genai.Client(api_key=api_key)
+        elif provider == "llama":
+            base_url = os.getenv("LLAMA_BASE_URL", "http://localhost:11434")
+            api_key = os.getenv("LLAMA_API_KEY", "ollama")
+            self.client = openai.OpenAI(api_key=api_key, base_url=f"{base_url}/v1")
         self.history = [
             {"role": "system", "content": """You are 'CodeAssist', a high-performance AI coding agent.
 You help users by modifying code, running commands, and answering questions.
@@ -527,7 +549,7 @@ Guidelines:
     def _extract_reasoning(self, msg: Any) -> Optional[str]:
         """Extract reasoning/thinking content from a provider response message."""
         reasoning = None
-        if self.provider in ["openai", "openrouter", "azure_openai"]:
+        if self.provider in ["openai", "openrouter", "azure_openai", "llama"]:
             reasoning = getattr(msg, 'reasoning_content', None) or (
                 msg.extra_body.get('reasoning') if hasattr(msg, 'extra_body') and msg.extra_body else None
             )
@@ -561,7 +583,7 @@ Guidelines:
         while True:
             msg: Any = None
             try:
-                if self.provider in ["openai", "openrouter", "azure_openai"]:
+                if self.provider in ["openai", "openrouter", "azure_openai", "llama"]:
                     params: Dict[str, Any] = {
                         "model": self.model,
                         "messages": self.history,
@@ -612,7 +634,7 @@ Guidelines:
                 continue
 
             content: str = ""
-            if self.provider in ["openai", "openrouter", "azure_openai"]:
+            if self.provider in ["openai", "openrouter", "azure_openai", "llama"]:
                 content = msg.content or ""
             elif self.provider == "anthropic":
                 content = msg.content[0].text if msg.content else ""
@@ -631,7 +653,7 @@ Guidelines:
         ]
         content: str = ""
         try:
-            if self.provider in ["openai", "openrouter", "azure_openai"]:
+            if self.provider in ["openai", "openrouter", "azure_openai", "llama"]:
                 params: Dict[str, Any] = {
                     "model": self.model,
                     "messages": messages,
@@ -682,7 +704,7 @@ Guidelines:
         ]
         
         content = ""
-        if self.provider in ["openai", "openrouter", "azure_openai"]:
+        if self.provider in ["openai", "openrouter", "azure_openai", "llama"]:
             response = self.client.chat.completions.create(model=self.model, messages=messages) # type: ignore
             content = response.choices[0].message.content or "Update"
         elif self.provider == "anthropic":
@@ -725,11 +747,11 @@ def start_cli() -> None:
     ))
     
     # Try to get provider from .env, otherwise prompt user
-    provider_prompt = f"[bold white]Provider[/bold white] ([cyan]openai[/cyan]/[green]anthropic[/green]/[yellow]openrouter[/yellow]/[blue]gemini[/blue]/[magenta]azure_openai[/magenta])"
+    provider_prompt = f"[bold white]Provider[/bold white] ([cyan]openai[/cyan]/[green]anthropic[/green]/[yellow]openrouter[/yellow]/[blue]gemini[/blue]/[magenta]azure_openai[/magenta]/[red]llama[/red])"
     provider = get_config_or_prompt(
         "PROVIDER",
         provider_prompt,
-        choices=["openai", "anthropic", "openrouter", "gemini", "azure_openai"],
+        choices=["openai", "anthropic", "openrouter", "gemini", "azure_openai", "llama"],
         default="openai"
     )
     
