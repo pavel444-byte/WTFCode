@@ -20,11 +20,22 @@ try:
     from rich.live import Live
     from rich.prompt import Prompt
     from dotenv import load_dotenv
-    from win11toast import toast
-    import pygetwindow as gw
 except ImportError as e:
     print(f"Error: [Missing dependencies: {e}]. Run 'uv sync'")
     sys.exit(1)
+
+# Optional Windows-only dependencies
+try:
+    from win11toast import toast
+    _HAS_TOAST = True
+except ImportError:
+    _HAS_TOAST = False
+
+try:
+    import pygetwindow as gw
+    _HAS_PYGETWINDOW = True
+except ImportError:
+    _HAS_PYGETWINDOW = False
 
 # Import local modules with fallback for package imports
 try:
@@ -90,19 +101,21 @@ theme_manager = ThemeManager(console)
 
 def is_app_in_background() -> bool:
     """Check if the current terminal window is in the background."""
+    if not _HAS_PYGETWINDOW:
+        return False
     try:
         active_window = gw.getActiveWindow()
         if not active_window:
             return True
-        # Check if "WTFcode" or the current terminal title is in the active window title
-        # This is a bit heuristic as terminal titles vary
         title = active_window.title.lower()
         return not ("wtfcode" in title or "powershell" in title or "cmd" in title or "terminal" in title)
     except Exception:
         return True
 
 def send_notification(title: str, message: str):
-    """Send a Windows notification if the app is in the background."""
+    """Send a desktop notification if the app is in the background."""
+    if not _HAS_TOAST:
+        return
     if is_app_in_background():
         try:
             toast(title, message, duration='short')
@@ -235,6 +248,13 @@ def execute_command(command: str, silent: bool = False) -> str:
         if not silent:
             theme_color = theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['warning']
             console.print(Panel(f"[bold {theme_color}]Command:[/bold {theme_color}] {command}", title="Executing Bash", border_style=theme_color))
+            confirm = Prompt.ask(
+                "[bold yellow]Run this command?[/bold yellow]",
+                choices=["y", "n"],
+                default="y"
+            )
+            if confirm == "n":
+                return "Command execution skipped by user."
         
         multi_line = os.getenv("MULTI_LINE_OUTPUT", "true").lower() == "true"
         
