@@ -22,7 +22,12 @@ def load_config() -> Dict[str, Any]:
             "openai": os.getenv("OPENAI_API_KEY", ""),
             "anthropic": os.getenv("ANTHROPIC_API_KEY", ""),
             "google": os.getenv("GOOGLE_API_KEY", ""),
-            "openrouter": os.getenv("OPENROUTER_API_KEY", "")
+            "openrouter": os.getenv("OPENROUTER_API_KEY", ""),
+            "azure_openai": os.getenv("AZURE_OPENAI_API_KEY", "")
+        },
+        "azure_openai": {
+            "endpoint": os.getenv("AZURE_OPENAI_ENDPOINT", ""),
+            "api_version": os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
         },
         "settings": {
             "notifications": True,

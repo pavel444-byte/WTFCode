@@ -34,10 +34,11 @@ def main():
         
         # Provider Selection
         current_provider = st.session_state.assistant.provider
+        providers = ["openai", "anthropic", "openrouter", "gemini", "azure_openai"]
         new_provider = st.selectbox(
             "Provider", 
-            ["openai", "anthropic", "openrouter", "gemini"], 
-            index=["openai", "anthropic", "openrouter", "gemini"].index(current_provider)
+            providers, 
+            index=providers.index(current_provider) if current_provider in providers else 0
         )
         
         if new_provider != current_provider:
@@ -128,7 +129,7 @@ def main():
                     ]
                     
                     content = ""
-                    if assistant.provider in ["openai", "openrouter"]:
+                    if assistant.provider in ["openai", "openrouter", "azure_openai"]:
                         response = assistant.client.chat.completions.create(
                             model=assistant.model,
                             messages=messages

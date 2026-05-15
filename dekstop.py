@@ -42,7 +42,7 @@ class WTFCodeDesktop(ctk.CTk):
         self.provider_label = ctk.CTkLabel(self.sidebar, text="Provider:")
         self.provider_label.grid(row=2, column=0, padx=20, pady=(10, 0), sticky="w")
         self.provider_var = ctk.StringVar(value=os.getenv("PROVIDER", config.get("provider", "openai")))
-        self.provider_menu = ctk.CTkOptionMenu(self.sidebar, values=["openai", "anthropic", "google", "ollama"], variable=self.provider_var, command=self.update_assistant)
+        self.provider_menu = ctk.CTkOptionMenu(self.sidebar, values=["openai", "anthropic", "google", "ollama", "azure_openai"], variable=self.provider_var, command=self.update_assistant)
         self.provider_menu.grid(row=3, column=0, padx=20, pady=10)
 
         self.model_label = ctk.CTkLabel(self.sidebar, text="Model:")

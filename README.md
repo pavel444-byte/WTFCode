@@ -28,6 +28,14 @@ WTFCode uses the following tools to interact with your environment:
    OPENAI_API_KEY=your_actual_key_here
    ```
 
+   For Azure OpenAI, set these additional variables:
+   ```env
+   AZURE_OPENAI_API_KEY=your_azure_openai_api_key_here
+   AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+   AZURE_OPENAI_API_VERSION=2024-12-01-preview
+   PROVIDER=azure_openai
+   ```
+
 ## Usage
 
 Run the main script to start the assistant:
