@@ -19,11 +19,33 @@ WTFCode uses the following tools to interact with your environment:
 
 ## Installation
 
-1. **Install it**:
+### Prerequisites
+
+Install [uv](https://docs.astral.sh/uv/) (Python package manager):
+
+**Linux / macOS:**
 ```bash
- uv pip install git+https://github.com/pavel444-byte/WTFCode.git
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
-3. **Configure Environment**:
+
+**Windows (PowerShell):**
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+### Install WTFCode
+
+**Linux / macOS:**
+```bash
+uv pip install git+https://github.com/pavel444-byte/WTFCode.git
+```
+
+**Windows** (includes desktop notifications support):
+```powershell
+uv pip install "wtfcode[windows] @ git+https://github.com/pavel444-byte/WTFCode.git"
+```
+
+### Configure Environment
    Create a `.env` file in the root directory and add your API key:
    ```env
    OPENAI_API_KEY=your_actual_key_here
