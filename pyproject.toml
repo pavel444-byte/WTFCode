@@ -11,12 +11,15 @@ dependencies = [
     "rich",
     "python-dotenv",
     "requests",
-    "win11toast>=0.36.3",
-    "pygetwindow>=0.0.9",
     "streamlit",
     "pyyaml>=6.0.3",
     "customtkinter>=5.2.2",
     "Pillow",
+]
+[project.optional-dependencies]
+windows = [
+    "win11toast>=0.36.3",
+    "pygetwindow>=0.0.9",
 ]
 [project.scripts]
 wtfcode = "main:start_cli"
