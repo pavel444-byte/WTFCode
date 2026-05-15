@@ -1,6 +1,6 @@
 [project]
 name = "wtfcode"
-version = "0.1.0"
+version = "1.0.3"
 description = "WTFcode: Auto Code Edit | Agent Mode | Ask Mode | Auto Bash, powered by LLMs, Amazing code - without 0 dollars in your provider."
 readme = "README.md"
 requires-python = ">=3.13"
