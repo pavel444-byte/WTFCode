@@ -6,6 +6,9 @@ from typing import List, Dict, Any, Optional, Union
 from dataclasses import dataclass
 from pathlib import Path
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 try:
     import openai
@@ -25,11 +28,11 @@ except ImportError as e:
 
 # Import local modules with fallback for package imports
 try:
-    from ya_config import config, init_config
+    from ya_config import config, init_config, reload_config, get_config_path
     from theme_manager import ThemeManager
 except ImportError:
     try:
-        from .ya_config import config, init_config
+        from .ya_config import config, init_config, reload_config, get_config_path
         from .theme_manager import ThemeManager
     except ImportError as e:
         # If both fail, provide helpful error message
@@ -393,7 +396,13 @@ TOOLS = [
     }
 ]
 
+# Cache for validated model lists per provider
+_model_cache: Dict[str, List[str]] = {}
+
+
 class CodeAssist:
+    client: Union[openai.OpenAI, "anthropic.Anthropic", "genai.Client"]
+
     def __init__(self, provider: str = "openai", model: Optional[str] = None) -> None:
         self.provider = provider
         if model is None:
@@ -407,7 +416,7 @@ class CodeAssist:
                 model = "gemini-1.5-flash"
         self.model: str = model  # type: ignore
         
-        # Validate model exists in provider
+        # Validate model exists in provider (uses cache to avoid repeated API calls)
         self._validate_model()
 
         if provider in ["openai", "openrouter"]:
@@ -429,7 +438,7 @@ class CodeAssist:
             if not api_key:
                 console.print("[bold red]Error:[/bold red] GOOGLE_API_KEY not found in environment or .env file.")
                 sys.exit(1)
-            self.client = genai.Client(api_key=api_key)  # type: ignore
+            self.client = genai.Client(api_key=api_key)
         self.history = [
             {"role": "system", "content": """You are 'CodeAssist', a high-performance AI coding agent.
 You help users by modifying code, running commands, and answering questions.
@@ -442,8 +451,14 @@ Guidelines:
         ]
 
     def _validate_model(self) -> None:
-        """Validate that the selected model exists in the provider."""
-        available_models = fetch_available_models(self.provider)
+        """Validate that the selected model exists in the provider. Uses a cache to avoid repeated API calls."""
+        if self.provider in _model_cache:
+            available_models = _model_cache[self.provider]
+        else:
+            available_models = fetch_available_models(self.provider)
+            if available_models:
+                _model_cache[self.provider] = available_models
+
         if available_models and self.model not in available_models:
             console.print(f"[bold yellow]Warning:[/bold yellow] Model '{self.model}' not found in {self.provider} provider.")
             console.print(f"Available models: {', '.join(available_models[:5])}{'...' if len(available_models) > 5 else ''}")
@@ -476,61 +491,86 @@ Guidelines:
             })
         return results
 
+    def _extract_reasoning(self, msg: Any) -> Optional[str]:
+        """Extract reasoning/thinking content from a provider response message."""
+        reasoning = None
+        if self.provider in ["openai", "openrouter"]:
+            reasoning = getattr(msg, 'reasoning_content', None) or (
+                msg.extra_body.get('reasoning') if hasattr(msg, 'extra_body') and msg.extra_body else None
+            )
+            if not reasoning and hasattr(msg, 'reasoning'):
+                reasoning = msg.reasoning
+            if not reasoning and msg.content and ("<thought>" in msg.content or "<think>" in msg.content):
+                import re
+                thought_match = re.search(r'<(thought|think)>(.*?)</\1>', msg.content, re.DOTALL)
+                if thought_match:
+                    reasoning = thought_match.group(2).strip()
+                    msg.content = msg.content.replace(thought_match.group(0), "").strip()
+        elif self.provider == "anthropic":
+            for content_block in getattr(msg, 'content', []):
+                if getattr(content_block, 'type', None) == 'thinking':
+                    reasoning = content_block.thinking
+                    break
+        return reasoning
+
+    def _display_reasoning(self, reasoning: Optional[str]) -> None:
+        """Display reasoning/thinking content if present."""
+        if reasoning:
+            console.print(Panel(
+                Markdown(reasoning),
+                title="Thinking Process",
+                border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['thinking']
+            ))
+
     def run_agent(self, prompt: str) -> None:
         self.history.append({"role": "user", "content": prompt})
         
         while True:
             msg: Any = None
-            if self.provider in ["openai", "openrouter"]:
-                # Prepare request parameters
-                params = {
-                    "model": self.model,
-                    "messages": self.history,  # type: ignore
-                    "tools": TOOLS,  # type: ignore
-                    "tool_choice": "auto"
-                }
-                
-                # Add reasoning for OpenRouter if applicable
-                if self.provider == "openrouter":
-                    params["extra_body"] = {"include_reasoning": True}
+            try:
+                if self.provider in ["openai", "openrouter"]:
+                    params: Dict[str, Any] = {
+                        "model": self.model,
+                        "messages": self.history,
+                        "tools": TOOLS,
+                        "tool_choice": "auto"
+                    }
+                    if self.provider == "openrouter":
+                        params["extra_body"] = {"include_reasoning": True}
 
-                response = self.client.chat.completions.create(**params)  # type: ignore
-                msg = response.choices[0].message
-                
-                # Handle thinking/reasoning content for OpenRouter/OpenAI
-                reasoning = getattr(msg, 'reasoning_content', None) or (msg.extra_body.get('reasoning') if hasattr(msg, 'extra_body') and msg.extra_body else None)
-                
-                # Check for reasoning in the message object itself (some SDK versions)
-                if not reasoning and hasattr(msg, 'reasoning'):
-                    reasoning = msg.reasoning
+                    response = self.client.chat.completions.create(**params)  # type: ignore
+                    msg = response.choices[0].message
 
-                # Fallback for some OpenRouter models that put reasoning in the content with <thought> tags
-                if not reasoning and msg.content and ("<thought>" in msg.content or "<think>" in msg.content):
-                    import re
-                    thought_match = re.search(r'<(thought|think)>(.*?)</\1>', msg.content, re.DOTALL)
-                    if thought_match:
-                        reasoning = thought_match.group(2).strip()
-                        # Remove thought from content so it's not displayed twice
-                        msg.content = msg.content.replace(thought_match.group(0), "").strip()
+                elif self.provider == "anthropic":
+                    response = self.client.messages.create(  # type: ignore
+                        model=self.model,
+                        max_tokens=4096,
+                        messages=self.history,
+                        tools=TOOLS
+                    )
+                    msg = response
 
-                if reasoning:
-                    console.print(Panel(Markdown(reasoning), title="Thinking Process", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['thinking']))
-            elif self.provider == "anthropic":
-                response = self.client.messages.create(  # type: ignore
-                    model=self.model,
-                    max_tokens=4096,
-                    messages=self.history,  # type: ignore
-                    tools=TOOLS  # type: ignore
-                )
-                msg = response
-                # Handle Anthropic thinking (if supported by the model/API version)
-                for content_block in getattr(msg, 'content', []):
-                    if getattr(content_block, 'type', None) == 'thinking':
-                        console.print(Panel(Markdown(content_block.thinking), title="Thinking Process", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['thinking']))
-            elif self.provider == "gemini":
-                console.print("[red]Gemini provider does not support agent mode with tools yet.[/red]")
-                return
-            
+                elif self.provider == "gemini":
+                    gemini_messages = [
+                        {"role": m["role"], "parts": [m["content"]]}
+                        for m in self.history
+                        if isinstance(m, dict) and m.get("role") in ("user", "model")
+                    ]
+                    response = self.client.models.generate_content(  # type: ignore
+                        model=self.model,
+                        contents=gemini_messages,
+                    )
+                    msg = response
+
+            except Exception as e:
+                logger.exception("API call failed in agent loop")
+                console.print(f"[bold red]API Error:[/bold red] {e}")
+                console.print("[yellow]Retrying may help. The failed response was not added to history.[/yellow]")
+                break
+
+            reasoning = self._extract_reasoning(msg)
+            self._display_reasoning(reasoning)
+
             self.history.append(msg)  # type: ignore
 
             if hasattr(msg, 'tool_calls') and msg.tool_calls:
@@ -544,7 +584,7 @@ Guidelines:
             elif self.provider == "anthropic":
                 content = msg.content[0].text if msg.content else ""
             elif self.provider == "gemini":
-                content = ""
+                content = msg.text if hasattr(msg, 'text') else ""
             if content:
                 console.print(Panel(Markdown(content), title="WTFCode", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['success']))
                 send_notification("WTFcode: AI Answered", content[:100] + "..." if len(content) > 100 else content)
@@ -552,56 +592,42 @@ Guidelines:
 
     def ask_only(self, prompt: str) -> None:
         """Standard Q&A mode without tool access for speed."""
-        messages = [
+        messages: List[Dict[str, str]] = [
             {"role": "system", "content": "You are a helpful coding assistant. Answer the question directly."},
             {"role": "user", "content": prompt}
         ]
         content: str = ""
-        if self.provider in ["openai", "openrouter"]:
-            # Prepare request parameters
-            params = {
-                "model": self.model,
-                "messages": messages,  # type: ignore
-            }
-            
-            # Add reasoning for OpenRouter if applicable
-            if self.provider == "openrouter":
-                params["extra_body"] = {"include_reasoning": True}
+        try:
+            if self.provider in ["openai", "openrouter"]:
+                params: Dict[str, Any] = {
+                    "model": self.model,
+                    "messages": messages,
+                }
+                if self.provider == "openrouter":
+                    params["extra_body"] = {"include_reasoning": True}
 
-            response = self.client.chat.completions.create(**params)  # type: ignore
-            msg = response.choices[0].message
-            reasoning = getattr(msg, 'reasoning_content', None) or (msg.extra_body.get('reasoning') if hasattr(msg, 'extra_body') and msg.extra_body else None)
-            
-            # Check for reasoning in the message object itself (some SDK versions)
-            if not reasoning and hasattr(msg, 'reasoning'):
-                reasoning = msg.reasoning
-
-            # Fallback for some OpenRouter models that put reasoning in the content with <thought> tags
-            if not reasoning and msg.content and ("<thought>" in msg.content or "<think>" in msg.content):
-                import re
-                thought_match = re.search(r'<(thought|think)>(.*?)</\1>', msg.content, re.DOTALL)
-                if thought_match:
-                    reasoning = thought_match.group(2).strip()
-                    # Remove thought from content so it's not displayed twice
-                    msg.content = msg.content.replace(thought_match.group(0), "").strip()
-
-            if reasoning:
-                console.print(Panel(Markdown(reasoning), title="Thinking Process", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['thinking']))
-            content = msg.content or ""
-        elif self.provider == "anthropic":
-            response = self.client.messages.create(  # type: ignore
-                model=self.model,
-                max_tokens=4096,
-                messages=messages  # type: ignore
-            )
-            # Handle Anthropic thinking
-            for content_block in getattr(response, 'content', []):
-                if getattr(content_block, 'type', None) == 'thinking':
-                    console.print(Panel(Markdown(content_block.thinking), title="Thinking Process", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['thinking']))
-            content = response.content[0].text if response.content else ""  # type: ignore
-        elif self.provider == "gemini":
-            response = self.client.generate_content(prompt)  # type: ignore
-            content = response.text if hasattr(response, 'text') else ""
+                response = self.client.chat.completions.create(**params)  # type: ignore
+                msg = response.choices[0].message
+                self._display_reasoning(self._extract_reasoning(msg))
+                content = msg.content or ""
+            elif self.provider == "anthropic":
+                response = self.client.messages.create(  # type: ignore
+                    model=self.model,
+                    max_tokens=4096,
+                    messages=messages
+                )
+                self._display_reasoning(self._extract_reasoning(response))
+                content = response.content[0].text if response.content else ""  # type: ignore
+            elif self.provider == "gemini":
+                response = self.client.models.generate_content(  # type: ignore
+                    model=self.model,
+                    contents=prompt,
+                )
+                content = response.text if hasattr(response, 'text') else ""
+        except Exception as e:
+            logger.exception("API call failed in ask mode")
+            console.print(f"[bold red]API Error:[/bold red] {e}")
+            return
         console.print(Panel(Markdown(content), title="Ask Mode", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['panel.border']))
         send_notification("WTFcode: AI Answered", content[:100] + "..." if len(content) > 100 else content)
 
@@ -630,7 +656,10 @@ Guidelines:
             response = self.client.messages.create(model=self.model, max_tokens=100, messages=messages) # type: ignore
             content = response.content[0].text if response.content else "Update" # type: ignore
         elif self.provider == "gemini":
-            response = self.client.generate_content(f"System: You are a git commit message generator. Return ONLY the message.\nUser: {prompt}") # type: ignore
+            response = self.client.models.generate_content(  # type: ignore
+                model=self.model,
+                contents=f"System: You are a git commit message generator. Return ONLY the message.\nUser: {prompt}",
+            )
             content = response.text if hasattr(response, 'text') else "Update"
             
         return content.strip().strip('"').strip("'")
@@ -749,9 +778,8 @@ def start_cli() -> None:
                     console.print(f"[bold green]{result}[/bold green]")
                 elif option == "reload":
                     with console.status("[bold cyan]Reloading config..."):
-                        # Assuming init_config or similar reloads the config object
-                        result = init_config()
-                    console.print(f"[bold green]Config reloaded: {result}[/bold green]")
+                        reload_config()
+                    console.print(f"[bold green]Config reloaded from {get_config_path()}[/bold green]")
                 continue
             if query == '/commit':
                 with console.status("[bold cyan]Generating commit message..."):
