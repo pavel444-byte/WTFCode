@@ -2,13 +2,16 @@ import os
 import sys
 import subprocess
 import json
-from typing import List, Dict, Any, Optional, Union
+import shlex
+from typing import List, Dict, Any, Optional, Union, cast
 from dataclasses import dataclass
 from pathlib import Path
 import time
 import logging
 
 logger = logging.getLogger(__name__)
+PROJECT_ROOT = Path.cwd().resolve()
+SHELL_METACHARACTERS = frozenset("|&;<>()$`\\!*?[]{}~\n")
 
 try:
     import openai
@@ -25,14 +28,19 @@ except ImportError as e:
     sys.exit(1)
 
 # Optional Windows-only dependencies
+toast: Any = None
+gw: Any = None
+
 try:
-    from win11toast import toast
+    from win11toast import toast as _toast
+    toast = _toast
     _HAS_TOAST = True
 except ImportError:
     _HAS_TOAST = False
 
 try:
-    import pygetwindow as gw
+    import pygetwindow as _gw
+    gw = _gw
     _HAS_PYGETWINDOW = True
 except ImportError:
     _HAS_PYGETWINDOW = False
@@ -61,7 +69,6 @@ def start_desktop() -> None:
     except ImportError:
         console.print("[bold red]Error:[/bold red] Missing dependencies for desktop mode. Run 'uv sync'")
         sys.exit(1)
-    subprocess.run([sys.executable, "python", "dekstop.py"])
     app = WTFCodeDesktop()
     app.mainloop()
 # Update environment variables from config if they are not already set
@@ -175,24 +182,69 @@ def fetch_available_models(provider: str) -> List[str]:
         console.print(f"[{theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['error']}]Error fetching models for {provider}: {str(e)}[/{theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['error']}]")
         return []
 
-def read_file(path: str) -> str:
-    abs_path = os.path.abspath(path)
+def _resolve_project_path(path: str) -> Path:
+    """Resolve a user-supplied path and ensure it stays inside the current project."""
+    requested_path = Path(path).expanduser()
+    if requested_path.is_absolute():
+        resolved_path = requested_path.resolve()
+    else:
+        resolved_path = (PROJECT_ROOT / requested_path).resolve()
+
     try:
-        with open(abs_path, 'r', encoding='utf-8') as f:
+        resolved_path.relative_to(PROJECT_ROOT)
+    except ValueError as exc:
+        raise ValueError(f"Path '{path}' is outside the project root: {PROJECT_ROOT}") from exc
+
+    return resolved_path
+
+
+def _display_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(PROJECT_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _parse_safe_command(command: str) -> List[str]:
+    """Parse a command for subprocess execution without invoking a shell."""
+    if not command.strip():
+        raise ValueError("Command cannot be empty.")
+
+    if any(char in command for char in SHELL_METACHARACTERS):
+        raise ValueError(
+            "Shell metacharacters are not allowed in tool commands. "
+            "Run a direct executable with arguments instead."
+        )
+
+    args = shlex.split(command, posix=os.name != "nt")
+    if not args:
+        raise ValueError("Command cannot be empty.")
+    return args
+
+
+def read_file(path: str) -> str:
+    try:
+        safe_path = _resolve_project_path(path)
+        if not safe_path.is_file():
+            return f"Error reading file {path}: file does not exist or is not a regular file."
+        with safe_path.open('r', encoding='utf-8') as f:
             lines = f.readlines()
         return "".join([f"{i+1:4} | {line}" for i, line in enumerate(lines)])
     except Exception as e:
         return f"Error reading file {path}: {str(e)}"
 
 def write_file(path: str, content: str) -> str:
-    abs_path = os.path.abspath(path)
     try:
+        safe_path = _resolve_project_path(path)
         old_content = ""
-        if os.path.exists(abs_path):
-            with open(abs_path, 'r', encoding='utf-8') as f:
+        if safe_path.exists():
+            if not safe_path.is_file():
+                return f"Error writing file {path}: target exists and is not a regular file."
+            with safe_path.open('r', encoding='utf-8') as f:
                 old_content = f.read()
         
-        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        safe_path.parent.mkdir(parents=True, exist_ok=True)
+        display_path = _display_path(safe_path)
         
         # Show diff if file exists
         if old_content:
@@ -200,24 +252,26 @@ def write_file(path: str, content: str) -> str:
             diff = list(difflib.unified_diff(
                 old_content.splitlines(keepends=True),
                 content.splitlines(keepends=True),
-                fromfile=f"a/{path}",
-                tofile=f"b/{path}"
+                fromfile=f"a/{display_path}",
+                tofile=f"b/{display_path}"
             ))
             if diff:
-                console.print(Panel("".join(diff), title=f"Changes in {path}", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['panel.border']))
+                console.print(Panel("".join(diff), title=f"Changes in {display_path}", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['panel.border']))
         else:
-            console.print(Panel(f"New file created: {path}", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['success']))
+            console.print(Panel(f"New file created: {display_path}", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['success']))
 
-        with open(abs_path, 'w', encoding='utf-8') as f:
+        with safe_path.open('w', encoding='utf-8') as f:
             f.write(content)
-        return f"Successfully wrote to {path}"
+        return f"Successfully wrote to {display_path}"
     except Exception as e:
         return f"Error writing file {path}: {str(e)}"
 
 def edit_file(path: str, old_str: str, new_str: str) -> str:
-    abs_path = os.path.abspath(path)
     try:
-        with open(abs_path, 'r', encoding='utf-8') as f:
+        safe_path = _resolve_project_path(path)
+        if not safe_path.is_file():
+            return f"Error editing file {path}: file does not exist or is not a regular file."
+        with safe_path.open('r', encoding='utf-8') as f:
             content = f.read()
         if old_str not in content:
             return f"Error: The exact string to replace was not found in {path}. Ensure indentation matches."
@@ -225,34 +279,36 @@ def edit_file(path: str, old_str: str, new_str: str) -> str:
             return f"Error: Multiple occurrences of the search string found in {path}. Please provide more context."
         
         new_content = content.replace(old_str, new_str)
+        display_path = _display_path(safe_path)
         
         # Show diff before writing
         import difflib
         diff = list(difflib.unified_diff(
             content.splitlines(keepends=True),
             new_content.splitlines(keepends=True),
-            fromfile=f"a/{path}",
-            tofile=f"b/{path}"
+            fromfile=f"a/{display_path}",
+            tofile=f"b/{display_path}"
         ))
         if diff:
-            console.print(Panel("".join(diff), title=f"Changes in {path}", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['panel.border']))
+            console.print(Panel("".join(diff), title=f"Changes in {display_path}", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['panel.border']))
 
-        with open(abs_path, 'w', encoding='utf-8') as f:
+        with safe_path.open('w', encoding='utf-8') as f:
             f.write(new_content)
-        return f"Successfully updated {path}"
+        return f"Successfully updated {display_path}"
     except Exception as e:
         return f"Error editing file {path}: {str(e)}"
 
 def execute_command(command: str, silent: bool = False) -> str:
     try:
+        args = _parse_safe_command(command)
         if not silent:
             theme_color = theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['warning']
             console.print(Panel(f"[bold {theme_color}]Command:[/bold {theme_color}] {command}", title="Executing Bash", border_style=theme_color))
-            confirm = Prompt.ask(
+            confirm = cast(str, Prompt.ask(
                 "[bold yellow]Run this command?[/bold yellow]",
                 choices=["y", "n"],
                 default="y"
-            )
+            ))
             if confirm == "n":
                 return "Command execution skipped by user."
         
@@ -262,7 +318,7 @@ def execute_command(command: str, silent: bool = False) -> str:
             # Use Live to show output as it comes
             output_lines = []
             with Live(console=console, refresh_per_second=4) as live:
-                process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=PROJECT_ROOT)
                 
                 # Ensure stdout and stderr are not None for type checking
                 if process.stdout is None or process.stderr is None:
@@ -283,7 +339,7 @@ def execute_command(command: str, silent: bool = False) -> str:
             
             return "".join(output_lines).strip() or "Command executed successfully (no output)."
 
-        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(args, capture_output=True, text=True, timeout=120, cwd=PROJECT_ROOT)
         
         if silent:
             return (result.stdout + result.stderr).strip()
@@ -354,9 +410,9 @@ def get_config_or_prompt(env_key: str, prompt_text: str, choices: Optional[List[
         return value
     
     if choices:
-        return Prompt.ask(prompt_text, choices=choices, default=default or choices[0])
+        return cast(str, Prompt.ask(prompt_text, choices=choices, default=default or choices[0]))
     else:
-        return Prompt.ask(prompt_text, default=default or "")
+        return cast(str, Prompt.ask(prompt_text, default=default or ""))
 
 TOOLS = [
     {
@@ -633,7 +689,7 @@ Guidelines:
                     ]
                     response = self.client.models.generate_content(  # type: ignore
                         model=self.model,
-                        contents=gemini_messages,
+                        contents=cast(Any, gemini_messages),
                     )
                     msg = response
 
@@ -659,7 +715,7 @@ Guidelines:
             elif self.provider == "anthropic":
                 content = msg.content[0].text if msg.content else ""
             elif self.provider == "gemini":
-                content = msg.text if hasattr(msg, 'text') else ""
+                content = cast(str, getattr(msg, 'text', '') or '')
             if content:
                 console.print(Panel(Markdown(content), title="WTFCode", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['success']))
                 send_notification("WTFcode: AI Answered", content[:100] + "..." if len(content) > 100 else content)
@@ -667,7 +723,7 @@ Guidelines:
 
     def ask_only(self, prompt: str) -> None:
         """Standard Q&A mode without tool access for speed."""
-        messages: List[Dict[str, str]] = [
+        messages: List[Any] = [
             {"role": "system", "content": "You are a helpful coding assistant. Answer the question directly."},
             {"role": "user", "content": prompt}
         ]
@@ -698,7 +754,7 @@ Guidelines:
                     model=self.model,
                     contents=prompt,
                 )
-                content = response.text if hasattr(response, 'text') else ""
+                content = cast(str, getattr(response, 'text', '') or '')
         except Exception as e:
             logger.exception("API call failed in ask mode")
             console.print(f"[bold red]API Error:[/bold red] {e}")
@@ -718,7 +774,7 @@ Guidelines:
         prompt = f"Generate a concise, professional git commit message for these changes:\n\n{diff[:4000]}"
         
         # Use a simplified internal call to get just the message
-        messages = [
+        messages: List[Any] = [
             {"role": "system", "content": "You are a git commit message generator. Return ONLY the message, no quotes or extra text."},
             {"role": "user", "content": prompt}
         ]
@@ -735,7 +791,7 @@ Guidelines:
                 model=self.model,
                 contents=f"System: You are a git commit message generator. Return ONLY the message.\nUser: {prompt}",
             )
-            content = response.text if hasattr(response, 'text') else "Update"
+            content = cast(str, getattr(response, 'text', '') or 'Update')
             
         return content.strip().strip('"').strip("'")
 
@@ -793,7 +849,7 @@ def start_cli() -> None:
     while True:
         try:
             mode_color = theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['prompt']
-            query = Prompt.ask(f"[{mode_color}]{mode}[/{mode_color}] [green]>").strip()
+            query = cast(str, Prompt.ask(f"[{mode_color}]{mode}[/{mode_color}] [green]>")).strip()
             
             if query == '/exit':
                 time.sleep(1.6)
@@ -807,13 +863,13 @@ def start_cli() -> None:
             
             if query == '/theme':
                 themes = theme_manager.list_themes()
-                theme_choice = Prompt.ask(f"\n[bold white]Select Theme[/bold white] ({'/'.join(themes)})", choices=themes, default=theme_manager.current_theme_name)
+                theme_choice = cast(str, Prompt.ask(f"\n[bold white]Select Theme[/bold white] ({'/'.join(themes)})", choices=themes, default=theme_manager.current_theme_name))
                 theme_manager.apply_theme(theme_choice)
                 console.print(f"[bold {theme_manager.DEFAULT_THEMES[theme_choice]['success']}]Theme switched to: {theme_choice}[/bold {theme_manager.DEFAULT_THEMES[theme_choice]['success']}]")
                 continue
 
             if query == '/mode':
-                mode = Prompt.ask("\n[bold white]Switch Mode[/bold white] ([cyan]agent[/cyan]/[blue]ask[/blue])", choices=["agent", "ask"], default=mode).lower()
+                mode = cast(str, Prompt.ask("\n[bold white]Switch Mode[/bold white] ([cyan]agent[/cyan]/[blue]ask[/blue])", choices=["agent", "ask"], default=mode)).lower()
                 console.print(f"[bold green]Mode switched to:[/bold green] {mode}")
                 continue
             if query == '/help':
@@ -845,7 +901,7 @@ def start_cli() -> None:
                 continue
             if query.startswith('/config'):
                 parts = query.split()
-                option = parts[1] if len(parts) > 1 else Prompt.ask("\n[bold white]Config Option[/bold white] ([cyan]reload[/cyan]/[green]create[/green])", choices=["reload", "create"], default="reload")
+                option = parts[1] if len(parts) > 1 else cast(str, Prompt.ask("\n[bold white]Config Option[/bold white] ([cyan]reload[/cyan]/[green]create[/green])", choices=["reload", "create"], default="reload"))
                 
                 if option == "create":
                     with console.status("[bold cyan]Initializing config..."):
@@ -861,7 +917,7 @@ def start_cli() -> None:
                     commit_msg = assistant.generate_commit_message()
                 
                 console.print(f"[bold green]Generated message:[/bold green] {commit_msg}")
-                confirm = Prompt.ask("Commit with this message?", choices=["y", "n"], default="y")
+                confirm = cast(str, Prompt.ask("Commit with this message?", choices=["y", "n"], default="y"))
                 if confirm == "y":
                     with console.status("[bold cyan]Committing..."):
                         result = git_commit(commit_msg)
@@ -898,7 +954,7 @@ def start_cli() -> None:
                         console.print(f"  ... and {len(available_models) - 20} more")
                     
                     # Prompt for model selection
-                    selected_model = Prompt.ask("\n[bold white]Enter model name (or press Enter to skip to default)[/bold white]", default="deepseek/deepseek-v3.2")
+                    selected_model = cast(str, Prompt.ask("\n[bold white]Enter model name (or press Enter to skip to default)[/bold white]", default="deepseek/deepseek-v3.2"))
                     if selected_model:
                         if selected_model in available_models:
                             assistant.model = selected_model

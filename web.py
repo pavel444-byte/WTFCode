@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 from dotenv import load_dotenv
 import json
+from typing import Any, List, cast
 
 # Add current directory to path so we can import from main
 sys.path.append(str(Path(__file__).parent))
@@ -109,13 +110,14 @@ def main():
                     st.session_state.assistant.run_agent(prompt)
                     
                     # Get the last message from history
-                    last_msg = st.session_state.assistant.history[-1]
+                    last_msg: Any = st.session_state.assistant.history[-1]
                     content = ""
                     if hasattr(last_msg, 'content'):
-                        if isinstance(last_msg.content, list):
-                            content = last_msg.content[0].text
+                        last_content = getattr(last_msg, 'content', None)
+                        if isinstance(last_content, list) and last_content:
+                            content = cast(str, getattr(last_content[0], 'text', '') or '')
                         else:
-                            content = last_msg.content or ""
+                            content = cast(str, last_content or '')
                     
                     st.markdown(content)
                     st.session_state.messages.append({"role": "assistant", "content": content})
@@ -123,7 +125,7 @@ def main():
                 with st.spinner("Thinking..."):
                     # ask_only also prints to console, let's extract the logic
                     assistant = st.session_state.assistant
-                    messages = [
+                    messages: List[Any] = [
                         {"role": "system", "content": "You are a helpful coding assistant. Answer the question directly."},
                         {"role": "user", "content": prompt}
                     ]
@@ -143,8 +145,11 @@ def main():
                         )
                         content = response.content[0].text if response.content else ""
                     elif assistant.provider == "gemini":
-                        response = assistant.client.generate_content(prompt)
-                        content = response.text if hasattr(response, 'text') else ""
+                        response = assistant.client.models.generate_content(
+                            model=assistant.model,
+                            contents=prompt,
+                        )
+                        content = cast(str, getattr(response, 'text', '') or '')
                     
                     st.markdown(content)
                     st.session_state.messages.append({"role": "assistant", "content": content})
