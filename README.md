@@ -20,9 +20,17 @@ WTFCode uses the following tools to interact with your environment:
 ## Installation
 
 1. **Install it**:
+
+For linux/macos:
+
 ```bash
  uv pip install git+https://github.com/pavel444-byte/WTFCode.git
 ```
+For windows:
+```bash
+ uv pip install git+https://github.com/pavel444-byte/WTFCode.git[windows]
+```
+
 3. **Configure Environment**:
    Create a `.env` file in the root directory and add your API key:
    ```env
