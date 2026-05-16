@@ -1447,7 +1447,7 @@ wheels = [
 
 [[package]]
 name = "wtfcode"
-version = "0.1.0"
+version = "1.0.3"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
@@ -1455,12 +1455,16 @@ dependencies = [
     { name = "google-genai" },
     { name = "openai" },
     { name = "pillow" },
-    { name = "pygetwindow" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "requests" },
     { name = "rich" },
     { name = "streamlit" },
+]
+
+[package.optional-dependencies]
+windows = [
+    { name = "pygetwindow" },
     { name = "win11toast" },
 ]
 
@@ -1471,11 +1475,12 @@ requires-dist = [
     { name = "google-genai" },
     { name = "openai" },
     { name = "pillow" },
-    { name = "pygetwindow", specifier = ">=0.0.9" },
+    { name = "pygetwindow", marker = "extra == 'windows'", specifier = ">=0.0.9" },
     { name = "python-dotenv" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "requests" },
     { name = "rich" },
     { name = "streamlit" },
-    { name = "win11toast", specifier = ">=0.36.3" },
+    { name = "win11toast", marker = "extra == 'windows'", specifier = ">=0.36.3" },
 ]
+provides-extras = ["windows"]

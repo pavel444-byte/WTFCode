@@ -17,6 +17,14 @@ try:
     import openai
     import anthropic
     import google.genai as genai
+    from anthropic.types import MessageParam, ToolResultBlockParam, ToolUnionParam
+    from openai.types.chat import (
+        ChatCompletionAssistantMessageParam,
+        ChatCompletionMessageParam,
+        ChatCompletionMessageToolCallParam,
+        ChatCompletionToolMessageParam,
+        ChatCompletionToolParam,
+    )
     from rich.console import Console
     from rich.markdown import Markdown
     from rich.panel import Panel
@@ -414,95 +422,119 @@ def get_config_or_prompt(env_key: str, prompt_text: str, choices: Optional[List[
     else:
         return cast(str, Prompt.ask(prompt_text, default=default or ""))
 
-TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "read_file",
-            "description": "Read the contents of a file with line numbers for context.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "The path to the file to read."}
-                },
-                "required": ["path"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "write_file",
-            "description": "Create a new file or overwrite an existing one.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "The path where the file should be written."},
-                    "content": {"type": "string", "description": "The content to write into the file."}
-                },
-                "required": ["path", "content"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "edit_file",
-            "description": "Replace a specific block of text in a file. Very precise.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "The path to the file to edit."},
-                    "old_str": {"type": "string", "description": "The exact text to find and replace."},
-                    "new_str": {"type": "string", "description": "The text to replace it with."}
-                },
-                "required": ["path", "old_str", "new_str"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "execute_command",
-            "description": "Run a bash/shell command. Useful for tests, builds, or git.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {"type": "string", "description": "The shell command to execute."}
-                },
-                "required": ["command"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "glob_search",
-            "description": "Find files in the project using glob patterns.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "pattern": {"type": "string", "description": "Glob pattern (e.g., 'src/**/*.py')."}
-                },
-                "required": ["pattern"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "git_commit",
-            "description": "Commit all changes in the repository with a descriptive message.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "message": {"type": "string", "description": "The commit message."}
-                },
-                "required": ["message"]
-            }
-        }
-    }
+SYSTEM_PROMPT = """You are 'CodeAssist', a high-performance AI coding agent.
+You help users by modifying code, running commands, and answering questions.
+Guidelines:
+1. When asked to fix/add features, use 'glob_search' to find files, 'read_file' to understand them, and 'edit_file' or 'write_file' to apply changes.
+2. Always verify your work by running tests or the code using 'execute_command' if applicable.
+3. After making changes to the code, use 'git_commit' to commit your changes with a descriptive message.
+4. Be concise and professional.
+5. If a command is dangerous, warn the user first (though in this CLI, they are auto-executed)."""
+
+OPENAI_COMPATIBLE_PROVIDERS = {"openai", "openrouter", "azure_openai", "llama"}
+
+
+@dataclass(frozen=True)
+class ToolSpec:
+    name: str
+    description: str
+    parameters: Dict[str, object]
+
+
+TOOL_SPECS = [
+    ToolSpec(
+        name="read_file",
+        description="Read the contents of a file with line numbers for context.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "The path to the file to read."}
+            },
+            "required": ["path"],
+        },
+    ),
+    ToolSpec(
+        name="write_file",
+        description="Create a new file or overwrite an existing one.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "The path where the file should be written."},
+                "content": {"type": "string", "description": "The content to write into the file."},
+            },
+            "required": ["path", "content"],
+        },
+    ),
+    ToolSpec(
+        name="edit_file",
+        description="Replace a specific block of text in a file. Very precise.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "The path to the file to edit."},
+                "old_str": {"type": "string", "description": "The exact text to find and replace."},
+                "new_str": {"type": "string", "description": "The text to replace it with."},
+            },
+            "required": ["path", "old_str", "new_str"],
+        },
+    ),
+    ToolSpec(
+        name="execute_command",
+        description="Run a bash/shell command. Useful for tests, builds, or git.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "description": "The shell command to execute."}
+            },
+            "required": ["command"],
+        },
+    ),
+    ToolSpec(
+        name="glob_search",
+        description="Find files in the project using glob patterns.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "pattern": {"type": "string", "description": "Glob pattern (e.g., 'src/**/*.py')."}
+            },
+            "required": ["pattern"],
+        },
+    ),
+    ToolSpec(
+        name="git_commit",
+        description="Commit all changes in the repository with a descriptive message.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "message": {"type": "string", "description": "The commit message."}
+            },
+            "required": ["message"],
+        },
+    ),
 ]
+
+
+def _build_openai_tool(spec: ToolSpec) -> ChatCompletionToolParam:
+    return {
+        "type": "function",
+        "function": {
+            "name": spec.name,
+            "description": spec.description,
+            "parameters": spec.parameters,
+        },
+    }
+
+
+def _build_anthropic_tool(spec: ToolSpec) -> ToolUnionParam:
+    return {
+        "name": spec.name,
+        "description": spec.description,
+        "input_schema": spec.parameters,
+    }
+
+
+OPENAI_TOOLS: List[ChatCompletionToolParam] = [_build_openai_tool(spec) for spec in TOOL_SPECS]
+ANTHROPIC_TOOLS: List[ToolUnionParam] = [_build_anthropic_tool(spec) for spec in TOOL_SPECS]
 
 # Cache for validated model lists per provider
 _model_cache: Dict[str, List[str]] = {}
@@ -513,6 +545,10 @@ class CodeAssist:
 
     def __init__(self, provider: str = "openai", model: Optional[str] = None) -> None:
         self.provider = provider
+        self.system_prompt = SYSTEM_PROMPT
+        self.openai_history: List[ChatCompletionMessageParam] = []
+        self.anthropic_history: List[MessageParam] = []
+        self.gemini_history: List[Dict[str, str]] = []
         if model is None:
             if provider == "openai":
                 model = "gpt-4o"
@@ -526,7 +562,9 @@ class CodeAssist:
                 model = "gemini-1.5-flash"
             elif provider == "llama":
                 model = "llama3.2"
-        self.model: str = model  # type: ignore
+        if model is None:
+            raise ValueError(f"Unsupported provider: {provider}")
+        self.model = model
         
         # Validate model exists in provider (uses cache to avoid repeated API calls)
         self._validate_model()
@@ -539,6 +577,7 @@ class CodeAssist:
                 sys.exit(1)
             base_url = "https://openrouter.ai/api/v1" if provider == "openrouter" else None
             self.client = openai.OpenAI(api_key=api_key, base_url=base_url)
+            self.openai_history.append({"role": "system", "content": self.system_prompt})
         elif provider == "azure_openai":
             api_key = os.getenv("AZURE_OPENAI_API_KEY")
             endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -554,6 +593,7 @@ class CodeAssist:
                 azure_endpoint=endpoint,
                 api_version=api_version
             )
+            self.openai_history.append({"role": "system", "content": self.system_prompt})
         elif provider == "anthropic":
             api_key = os.getenv("ANTHROPIC_API_KEY")
             if not api_key:
@@ -566,20 +606,14 @@ class CodeAssist:
                 console.print("[bold red]Error:[/bold red] GOOGLE_API_KEY not found in environment or .env file.")
                 sys.exit(1)
             self.client = genai.Client(api_key=api_key)
+            self.gemini_history.append({"role": "user", "content": f"System instructions:\n{self.system_prompt}"})
         elif provider == "llama":
             base_url = os.getenv("LLAMA_BASE_URL", "http://localhost:11434")
             api_key = os.getenv("LLAMA_API_KEY", "ollama")
             self.client = openai.OpenAI(api_key=api_key, base_url=f"{base_url}/v1")
-        self.history = [
-            {"role": "system", "content": """You are 'CodeAssist', a high-performance AI coding agent.
-You help users by modifying code, running commands, and answering questions.
-Guidelines:
-1. When asked to fix/add features, use 'glob_search' to find files, 'read_file' to understand them, and 'edit_file' or 'write_file' to apply changes.
-2. Always verify your work by running tests or the code using 'execute_command' if applicable.
-3. After making changes to the code, use 'git_commit' to commit your changes with a descriptive message.
-4. Be concise and professional.
-5. If a command is dangerous, warn the user first (though in this CLI, they are auto-executed)."""}
-        ]
+            self.openai_history.append({"role": "system", "content": self.system_prompt})
+        else:
+            raise ValueError(f"Unsupported provider: {provider}")
 
     def _validate_model(self) -> None:
         """Validate that the selected model exists in the provider. Uses a cache to avoid repeated API calls."""
@@ -598,29 +632,87 @@ Guidelines:
         else:
             console.print(f"[bold green]Model validated:[/bold green] {self.model}")
 
-    def process_tool_calls(self, tool_calls: list) -> list:
-        results = []
+    def add_context_message(self, content: str) -> None:
+        if self.provider in OPENAI_COMPATIBLE_PROVIDERS:
+            self.openai_history.append({"role": "user", "content": content})
+        elif self.provider == "anthropic":
+            self.anthropic_history.append({"role": "user", "content": content})
+        elif self.provider == "gemini":
+            self.gemini_history.append({"role": "user", "content": content})
+
+    def _run_local_tool(self, name: str, args: Dict[str, Any]) -> str:
+        info_color = theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['info']
+        with console.status(f"[bold {info_color}]Tool Call: {name}({list(args.values())[0] if args else ''})..."):
+            if name == "read_file":
+                return read_file(**args)
+            if name == "write_file":
+                return write_file(**args)
+            if name == "edit_file":
+                return edit_file(**args)
+            if name == "execute_command":
+                return execute_command(**args)
+            if name == "glob_search":
+                return glob_search(**args)
+            if name == "git_commit":
+                return git_commit(**args)
+            return f"Unknown tool: {name}"
+
+    def _build_openai_assistant_message(self, msg: Any) -> ChatCompletionAssistantMessageParam:
+        assistant_message: ChatCompletionAssistantMessageParam = {"role": "assistant"}
+        if msg.content is not None:
+            assistant_message["content"] = msg.content
+        elif not getattr(msg, "tool_calls", None):
+            assistant_message["content"] = ""
+
+        if getattr(msg, "tool_calls", None):
+            tool_calls: List[ChatCompletionMessageToolCallParam] = [
+                {
+                    "id": tool_call.id,
+                    "type": "function",
+                    "function": {
+                        "name": tool_call.function.name,
+                        "arguments": tool_call.function.arguments,
+                    },
+                }
+                for tool_call in msg.tool_calls
+            ]
+            assistant_message["tool_calls"] = tool_calls
+        return assistant_message
+
+    def process_tool_calls(self, tool_calls: list[Any]) -> list[ChatCompletionToolMessageParam]:
+        results: list[ChatCompletionToolMessageParam] = []
         for tc in tool_calls:
             name = tc.function.name
-            args = json.loads(tc.function.arguments)
-            
-            info_color = theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['info']
-            with console.status(f"[bold {info_color}]Tool Call: {name}({list(args.values())[0] if args else ''})..."):
-                if name == "read_file": res = read_file(**args)
-                elif name == "write_file": res = write_file(**args)
-                elif name == "edit_file": res = edit_file(**args)
-                elif name == "execute_command": res = execute_command(**args)
-                elif name == "glob_search": res = glob_search(**args)
-                elif name == "git_commit": res = git_commit(**args)
-                else: res = f"Unknown tool: {name}"
-            
+            args = cast(Dict[str, Any], json.loads(tc.function.arguments))
+            res = self._run_local_tool(name, args)
             results.append({
                 "tool_call_id": tc.id,
                 "role": "tool",
-                "name": name,
-                "content": res
+                "content": res,
             })
         return results
+
+    def process_anthropic_tool_uses(self, content_blocks: list[Any]) -> list[ToolResultBlockParam]:
+        results: list[ToolResultBlockParam] = []
+        for block in content_blocks:
+            if getattr(block, "type", None) != "tool_use":
+                continue
+            args = cast(Dict[str, Any], block.input)
+            res = self._run_local_tool(block.name, args)
+            results.append({
+                "tool_use_id": block.id,
+                "type": "tool_result",
+                "content": res,
+            })
+        return results
+
+    def _extract_anthropic_text(self, msg: Any) -> str:
+        text_parts = [
+            block.text
+            for block in getattr(msg, "content", [])
+            if getattr(block, "type", None) == "text"
+        ]
+        return "\n".join(text_parts).strip()
 
     def _extract_reasoning(self, msg: Any) -> Optional[str]:
         """Extract reasoning/thinking content from a provider response message."""
@@ -654,40 +746,48 @@ Guidelines:
             ))
 
     def run_agent(self, prompt: str) -> None:
-        self.history.append({"role": "user", "content": prompt})
+        self.add_context_message(prompt)
         
         while True:
             msg: Any = None
             try:
-                if self.provider in ["openai", "openrouter", "azure_openai", "llama"]:
-                    params: Dict[str, Any] = {
-                        "model": self.model,
-                        "messages": self.history,
-                        "tools": TOOLS,
-                        "tool_choice": "auto"
-                    }
+                if self.provider in OPENAI_COMPATIBLE_PROVIDERS:
+                    client = cast(Union[openai.OpenAI, openai.AzureOpenAI], self.client)
                     if self.provider == "openrouter":
-                        params["extra_body"] = {"include_reasoning": True}
-
-                    response = self.client.chat.completions.create(**params)  # type: ignore
+                        response = client.chat.completions.create(
+                            model=self.model,
+                            messages=self.openai_history,
+                            tools=OPENAI_TOOLS,
+                            tool_choice="auto",
+                            extra_body={"include_reasoning": True},
+                        )
+                    else:
+                        response = client.chat.completions.create(
+                            model=self.model,
+                            messages=self.openai_history,
+                            tools=OPENAI_TOOLS,
+                            tool_choice="auto",
+                        )
                     msg = response.choices[0].message
 
                 elif self.provider == "anthropic":
-                    response = self.client.messages.create(  # type: ignore
+                    client = cast(anthropic.Anthropic, self.client)
+                    response = client.messages.create(
                         model=self.model,
                         max_tokens=4096,
-                        messages=self.history,
-                        tools=TOOLS
+                        system=self.system_prompt,
+                        messages=self.anthropic_history,
+                        tools=ANTHROPIC_TOOLS,
                     )
                     msg = response
 
                 elif self.provider == "gemini":
+                    client = cast(genai.Client, self.client)
                     gemini_messages = [
-                        {"role": m["role"], "parts": [m["content"]]}
-                        for m in self.history
-                        if isinstance(m, dict) and m.get("role") in ("user", "model")
+                        {"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]}
+                        for m in self.gemini_history
                     ]
-                    response = self.client.models.generate_content(  # type: ignore
+                    response = client.models.generate_content(
                         model=self.model,
                         contents=cast(Any, gemini_messages),
                     )
@@ -702,18 +802,31 @@ Guidelines:
             reasoning = self._extract_reasoning(msg)
             self._display_reasoning(reasoning)
 
-            self.history.append(msg)  # type: ignore
+            if self.provider in OPENAI_COMPATIBLE_PROVIDERS:
+                self.openai_history.append(self._build_openai_assistant_message(msg))
+            elif self.provider == "anthropic":
+                self.anthropic_history.append({"role": "assistant", "content": msg.content})
+            elif self.provider == "gemini":
+                gemini_text = cast(str, getattr(msg, "text", "") or "")
+                self.gemini_history.append({"role": "model", "content": gemini_text})
 
-            if hasattr(msg, 'tool_calls') and msg.tool_calls:
+            if self.provider in OPENAI_COMPATIBLE_PROVIDERS and getattr(msg, "tool_calls", None):
                 tool_results = self.process_tool_calls(msg.tool_calls)
-                self.history.extend(tool_results)
+                self.openai_history.extend(tool_results)
+                continue
+            if self.provider == "anthropic":
+                tool_results = self.process_anthropic_tool_uses(msg.content)
+                if tool_results:
+                    self.anthropic_history.append({"role": "user", "content": tool_results})
+                    continue
+            if self.provider == "gemini" and not cast(str, getattr(msg, "text", "") or ""):
                 continue
 
             content: str = ""
-            if self.provider in ["openai", "openrouter", "azure_openai", "llama"]:
+            if self.provider in OPENAI_COMPATIBLE_PROVIDERS:
                 content = msg.content or ""
             elif self.provider == "anthropic":
-                content = msg.content[0].text if msg.content else ""
+                content = self._extract_anthropic_text(msg)
             elif self.provider == "gemini":
                 content = cast(str, getattr(msg, 'text', '') or '')
             if content:
@@ -723,36 +836,45 @@ Guidelines:
 
     def ask_only(self, prompt: str) -> None:
         """Standard Q&A mode without tool access for speed."""
-        messages: List[Any] = [
-            {"role": "system", "content": "You are a helpful coding assistant. Answer the question directly."},
-            {"role": "user", "content": prompt}
+        ask_system_prompt = "You are a helpful coding assistant. Answer the question directly."
+        openai_messages: List[ChatCompletionMessageParam] = [
+            {"role": "system", "content": ask_system_prompt},
+            {"role": "user", "content": prompt},
         ]
+        anthropic_messages: List[MessageParam] = [{"role": "user", "content": prompt}]
         content: str = ""
         try:
-            if self.provider in ["openai", "openrouter", "azure_openai", "llama"]:
-                params: Dict[str, Any] = {
-                    "model": self.model,
-                    "messages": messages,
-                }
+            if self.provider in OPENAI_COMPATIBLE_PROVIDERS:
+                client = cast(Union[openai.OpenAI, openai.AzureOpenAI], self.client)
                 if self.provider == "openrouter":
-                    params["extra_body"] = {"include_reasoning": True}
-
-                response = self.client.chat.completions.create(**params)  # type: ignore
+                    response = client.chat.completions.create(
+                        model=self.model,
+                        messages=openai_messages,
+                        extra_body={"include_reasoning": True},
+                    )
+                else:
+                    response = client.chat.completions.create(
+                        model=self.model,
+                        messages=openai_messages,
+                    )
                 msg = response.choices[0].message
                 self._display_reasoning(self._extract_reasoning(msg))
                 content = msg.content or ""
             elif self.provider == "anthropic":
-                response = self.client.messages.create(  # type: ignore
+                client = cast(anthropic.Anthropic, self.client)
+                response = client.messages.create(
                     model=self.model,
                     max_tokens=4096,
-                    messages=messages
+                    system=ask_system_prompt,
+                    messages=anthropic_messages,
                 )
                 self._display_reasoning(self._extract_reasoning(response))
-                content = response.content[0].text if response.content else ""  # type: ignore
+                content = self._extract_anthropic_text(response)
             elif self.provider == "gemini":
-                response = self.client.models.generate_content(  # type: ignore
+                client = cast(genai.Client, self.client)
+                response = client.models.generate_content(
                     model=self.model,
-                    contents=prompt,
+                    contents=f"System: {ask_system_prompt}\nUser: {prompt}",
                 )
                 content = cast(str, getattr(response, 'text', '') or '')
         except Exception as e:
@@ -774,22 +896,32 @@ Guidelines:
         prompt = f"Generate a concise, professional git commit message for these changes:\n\n{diff[:4000]}"
         
         # Use a simplified internal call to get just the message
-        messages: List[Any] = [
-            {"role": "system", "content": "You are a git commit message generator. Return ONLY the message, no quotes or extra text."},
-            {"role": "user", "content": prompt}
+        commit_system_prompt = "You are a git commit message generator. Return ONLY the message, no quotes or extra text."
+        openai_messages: List[ChatCompletionMessageParam] = [
+            {"role": "system", "content": commit_system_prompt},
+            {"role": "user", "content": prompt},
         ]
+        anthropic_messages: List[MessageParam] = [{"role": "user", "content": prompt}]
         
         content = ""
-        if self.provider in ["openai", "openrouter", "azure_openai", "llama"]:
-            response = self.client.chat.completions.create(model=self.model, messages=messages) # type: ignore
+        if self.provider in OPENAI_COMPATIBLE_PROVIDERS:
+            client = cast(Union[openai.OpenAI, openai.AzureOpenAI], self.client)
+            response = client.chat.completions.create(model=self.model, messages=openai_messages)
             content = response.choices[0].message.content or "Update"
         elif self.provider == "anthropic":
-            response = self.client.messages.create(model=self.model, max_tokens=100, messages=messages) # type: ignore
-            content = response.content[0].text if response.content else "Update" # type: ignore
-        elif self.provider == "gemini":
-            response = self.client.models.generate_content(  # type: ignore
+            client = cast(anthropic.Anthropic, self.client)
+            response = client.messages.create(
                 model=self.model,
-                contents=f"System: You are a git commit message generator. Return ONLY the message.\nUser: {prompt}",
+                max_tokens=100,
+                system=commit_system_prompt,
+                messages=anthropic_messages,
+            )
+            content = self._extract_anthropic_text(response) or "Update"
+        elif self.provider == "gemini":
+            client = cast(genai.Client, self.client)
+            response = client.models.generate_content(
+                model=self.model,
+                contents=f"System: {commit_system_prompt}\nUser: {prompt}",
             )
             content = cast(str, getattr(response, 'text', '') or 'Update')
             
@@ -935,10 +1067,7 @@ def start_cli() -> None:
                 if os.path.exists(file_to_add):
                     with console.status(f"[bold cyan]Reading {file_to_add}..."):
                         content = read_file(file_to_add)
-                        assistant.history.append({
-                            "role": "user",
-                            "content": f"Context from file `{file_to_add}`:\n\n{content}"
-                        })
+                        assistant.add_context_message(f"Context from file `{file_to_add}`:\n\n{content}")
                     console.print(f"[bold green]Added {file_to_add} to context.[/bold green]")
                 else:
                     console.print(f"[bold red]Error:[/bold red] File '{file_to_add}' not found.")
