@@ -74,7 +74,7 @@ def main():
         
         if st.button("Clear Chat"):
             st.session_state.messages = []
-            st.session_state.assistant.history = st.session_state.assistant.history[:1]
+            st.session_state.assistant.reset_history()
             st.rerun()
 
     # Display chat messages
@@ -109,15 +109,7 @@ def main():
                     # In a full implementation, we'd want to show tool calls in the UI
                     st.session_state.assistant.run_agent(prompt)
                     
-                    # Get the last message from history
-                    last_msg: Any = st.session_state.assistant.history[-1]
-                    content = ""
-                    if hasattr(last_msg, 'content'):
-                        last_content = getattr(last_msg, 'content', None)
-                        if isinstance(last_content, list) and last_content:
-                            content = cast(str, getattr(last_content[0], 'text', '') or '')
-                        else:
-                            content = cast(str, last_content or '')
+                    content = st.session_state.assistant.get_last_assistant_text()
                     
                     st.markdown(content)
                     st.session_state.messages.append({"role": "assistant", "content": content})
