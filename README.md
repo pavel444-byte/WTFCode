@@ -3,6 +3,17 @@ Thank you, Devin for making this code more cool!
 
 A powerful CLI-based coding assistant that helps you write, edit, and manage code autonomously.
 
+
+## Latest Release
+
+**WTFCode 1.0.4** focuses on stability for CLI/Web/Desktop usage:
+- safer command streaming with timeout handling;
+- fixed Streamlit chat history and Agent Mode rendering;
+- assistant methods now return generated text for UI integrations;
+- config/theme writes are now explicit instead of happening during imports.
+
+See [`CHANGELOG.md`](CHANGELOG.md) for full release notes.
+
 ## Features
 - **Agent Mode**: Full autonomous tool use (Read, Write, Edit, Bash, Glob).
 - **Ask Mode**: Quick Q&A for your codebase.
