@@ -3,6 +3,8 @@ import sys
 import subprocess
 import json
 import shlex
+import queue
+import threading
 from typing import List, Dict, Any, Optional, Union, cast
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +14,8 @@ import logging
 logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path.cwd().resolve()
 SHELL_METACHARACTERS = frozenset("|&;<>()$`\\!*?[]{}~\n")
+COMMAND_TIMEOUT_SECONDS = 120
+COMMAND_TERMINATION_GRACE_SECONDS = 2
 
 try:
     import openai
@@ -306,6 +310,26 @@ def edit_file(path: str, old_str: str, new_str: str) -> str:
     except Exception as e:
         return f"Error editing file {path}: {str(e)}"
 
+def _format_command_output(output: str) -> str:
+    return output.strip() or "Command executed successfully (no output)."
+
+
+def _timeout_error() -> str:
+    return f"Error: Command timed out after {COMMAND_TIMEOUT_SECONDS} seconds."
+
+
+def _terminate_process(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+
+    process.terminate()
+    try:
+        process.wait(timeout=COMMAND_TERMINATION_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
 def execute_command(command: str, silent: bool = False) -> str:
     try:
         args = _parse_safe_command(command)
@@ -319,45 +343,75 @@ def execute_command(command: str, silent: bool = False) -> str:
             ))
             if confirm == "n":
                 return "Command execution skipped by user."
-        
+
         multi_line = os.getenv("MULTI_LINE_OUTPUT", "true").lower() == "true"
-        
+
         if multi_line and not silent:
-            # Use Live to show output as it comes
-            output_lines = []
+            output_lines: List[str] = []
+            output_queue: queue.Queue[str] = queue.Queue()
+
             with Live(console=console, refresh_per_second=4) as live:
-                process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=PROJECT_ROOT)
-                
-                # Ensure stdout and stderr are not None for type checking
-                if process.stdout is None or process.stderr is None:
+                process = subprocess.Popen(
+                    args,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    cwd=PROJECT_ROOT,
+                    bufsize=1,
+                )
+
+                if process.stdout is None:
                     return "Error: Failed to capture command output."
 
+                def read_output() -> None:
+                    try:
+                        for line in process.stdout:
+                            output_queue.put(line)
+                    finally:
+                        process.stdout.close()
+
+                reader_thread = threading.Thread(target=read_output, daemon=True)
+                reader_thread.start()
+
+                start_time = time.monotonic()
+                timed_out = False
+
                 while True:
-                    line = process.stdout.readline()
-                    if not line and process.poll() is not None:
-                        break
-                    if line:
+                    try:
+                        line = output_queue.get(timeout=0.1)
                         output_lines.append(line)
                         live.update(Panel("".join(output_lines), title="Command Output", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['panel.border']))
-                
-                stderr = process.stderr.read()
-                if stderr:
-                    output_lines.append(f"\n--- Errors ---\n{stderr}")
+                    except queue.Empty:
+                        pass
+
+                    if process.poll() is not None and output_queue.empty():
+                        break
+
+                    if time.monotonic() - start_time > COMMAND_TIMEOUT_SECONDS:
+                        timed_out = True
+                        _terminate_process(process)
+                        break
+
+                while not output_queue.empty():
+                    output_lines.append(output_queue.get())
+
+                reader_thread.join(timeout=COMMAND_TERMINATION_GRACE_SECONDS)
+
+                if output_lines:
                     live.update(Panel("".join(output_lines), title="Command Output", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['panel.border']))
-            
-            return "".join(output_lines).strip() or "Command executed successfully (no output)."
 
-        result = subprocess.run(args, capture_output=True, text=True, timeout=120, cwd=PROJECT_ROOT)
-        
-        if silent:
-            return (result.stdout + result.stderr).strip()
+                if timed_out:
+                    return _timeout_error()
 
+            return _format_command_output("".join(output_lines))
+
+        result = subprocess.run(args, capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS, cwd=PROJECT_ROOT)
         output = result.stdout
         if result.stderr:
             output += f"\n--- Errors ---\n{result.stderr}"
-        return output if output.strip() else "Command executed successfully (no output)."
+        return _format_command_output(output)
     except subprocess.TimeoutExpired:
-        return "Error: Command timed out after 120 seconds."
+        return _timeout_error()
     except Exception as e:
         return f"Error executing command: {str(e)}"
 
