@@ -1,4 +1,3 @@
-from typing import Dict, Any
 from rich.theme import Theme
 from rich.console import Console
 import yaml
@@ -69,7 +68,7 @@ class ThemeManager:
         self.apply_theme(self.current_theme_name)
 
     def apply_theme(self, theme_name: str):
-        """Apply a theme by name."""
+        """Apply a theme by name without saving it to the config file."""
         if theme_name not in self.DEFAULT_THEMES:
             theme_name = "dark"
         
@@ -77,13 +76,18 @@ class ThemeManager:
         rich_theme = Theme(theme_data)
         self.console.push_theme(rich_theme)
         self.current_theme_name = theme_name
-        
-        # Update config
-        self._update_config_theme(theme_name)
+
+    def set_theme(self, theme_name: str):
+        """Apply a theme by name and save the user's selection."""
+        self.apply_theme(theme_name)
+        self._update_config_theme(self.current_theme_name)
 
     def _update_config_theme(self, theme_name: str):
-        """Update the theme in the config file."""
+        """Update the theme in the config file if it already exists."""
+        config.setdefault("settings", {})["theme"] = theme_name
         config_path = get_config_path()
+        if not config_path.exists():
+            return
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 current_config = yaml.safe_load(f) or {}
@@ -95,7 +99,7 @@ class ThemeManager:
             
             with open(config_path, 'w', encoding='utf-8') as f:
                 yaml.dump(current_config, f, default_flow_style=False)
-        except Exception as e:
+        except Exception:
             # Silently fail if config can't be updated
             pass
 

@@ -1101,7 +1101,7 @@ def start_cli() -> None:
             if query == '/theme':
                 themes = theme_manager.list_themes()
                 theme_choice = cast(str, Prompt.ask(f"\n[bold white]Select Theme[/bold white] ({'/'.join(themes)})", choices=themes, default=theme_manager.current_theme_name))
-                theme_manager.apply_theme(theme_choice)
+                theme_manager.set_theme(theme_choice)
                 console.print(f"[bold {theme_manager.DEFAULT_THEMES[theme_choice]['success']}]Theme switched to: {theme_choice}[/bold {theme_manager.DEFAULT_THEMES[theme_choice]['success']}]")
                 continue
 
