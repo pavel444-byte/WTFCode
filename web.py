@@ -3,13 +3,11 @@ import os
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
-import json
-from typing import Any, List, cast
 
 # Add current directory to path so we can import from main
 sys.path.append(str(Path(__file__).parent))
 
-from main import CodeAssist, read_file, write_file, edit_file, execute_command, glob_search, git_commit, fetch_available_models
+from main import CodeAssist, fetch_available_models
 
 def init_session_state():
     if "messages" not in st.session_state:
@@ -94,55 +92,14 @@ def main():
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            response_placeholder = st.empty()
-            
-            # We need to capture the output of the agent which usually goes to console
-            # For now, we'll adapt the run_agent/ask_only logic or just use the assistant's methods
-            # Since run_agent prints to console, we might need a web-friendly version or capture stdout
-            
             if st.session_state.mode == "agent":
-                # Note: run_agent in main.py uses console.print. 
-                # In a real app, we'd refactor CodeAssist to return values or use a callback.
-                # For this implementation, we'll simulate the interaction.
                 with st.spinner("Agent is thinking and acting..."):
-                    # This is a simplified version for the web UI
-                    # In a full implementation, we'd want to show tool calls in the UI
-                    st.session_state.assistant.run_agent(prompt)
-                    
-                    content = st.session_state.assistant.get_last_assistant_text()
-                    
+                    content = st.session_state.assistant.run_agent(prompt, render=False)
                     st.markdown(content)
                     st.session_state.messages.append({"role": "assistant", "content": content})
             else:
                 with st.spinner("Thinking..."):
-                    # ask_only also prints to console, let's extract the logic
-                    assistant = st.session_state.assistant
-                    messages: List[Any] = [
-                        {"role": "system", "content": "You are a helpful coding assistant. Answer the question directly."},
-                        {"role": "user", "content": prompt}
-                    ]
-                    
-                    content = ""
-                    if assistant.provider in ["openai", "openrouter", "azure_openai", "llama"]:
-                        response = assistant.client.chat.completions.create(
-                            model=assistant.model,
-                            messages=messages
-                        )
-                        content = response.choices[0].message.content or ""
-                    elif assistant.provider == "anthropic":
-                        response = assistant.client.messages.create(
-                            model=assistant.model,
-                            max_tokens=4096,
-                            messages=messages
-                        )
-                        content = response.content[0].text if response.content else ""
-                    elif assistant.provider == "gemini":
-                        response = assistant.client.models.generate_content(
-                            model=assistant.model,
-                            contents=prompt,
-                        )
-                        content = cast(str, getattr(response, 'text', '') or '')
-                    
+                    content = st.session_state.assistant.ask_only(prompt, render=False)
                     st.markdown(content)
                     st.session_state.messages.append({"role": "assistant", "content": content})
 

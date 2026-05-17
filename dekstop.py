@@ -1,12 +1,10 @@
 import os
-import sys
 import threading
 import queue
 from typing import Optional
 import customtkinter as ctk
 from PIL import Image
 from main import CodeAssist, theme_manager, config
-import io
 
 class WTFCodeDesktop(ctk.CTk):
     def __init__(self):
@@ -121,28 +119,13 @@ class WTFCodeDesktop(ctk.CTk):
     def run_ai(self, query: str):
         mode = self.mode_var.get()
         
-        # Capture stdout to get the rich console output
-        output_capture = io.StringIO()
-        original_stdout = sys.stdout
-        sys.stdout = output_capture
-        
         try:
             if mode == "agent":
-                self.assistant.run_agent(query)
+                content = self.assistant.run_agent(query, render=False)
             else:
-                self.assistant.ask_only(query)
-            
-            sys.stdout = original_stdout
-            full_output = output_capture.getvalue()
-            
-            # Clean up ANSI escape codes if any (though rich usually handles it)
-            import re
-            ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-            clean_output = ansi_escape.sub('', full_output)
-            
-            self.msg_queue.put(clean_output)
+                content = self.assistant.ask_only(query, render=False)
+            self.msg_queue.put(content)
         except Exception as e:
-            sys.stdout = original_stdout
             self.msg_queue.put(f"Error: {str(e)}")
 
     def process_queue(self):

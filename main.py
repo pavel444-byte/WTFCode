@@ -850,8 +850,10 @@ class CodeAssist:
                 border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['thinking']
             ))
 
-    def run_agent(self, prompt: str) -> None:
+    def run_agent(self, prompt: str, render: bool = True) -> str:
+        """Run agent mode with tool access and return the final assistant text."""
         self.add_context_message(prompt)
+        final_content = ""
         
         while True:
             msg: Any = None
@@ -900,12 +902,14 @@ class CodeAssist:
 
             except Exception as e:
                 logger.exception("API call failed in agent loop")
-                console.print(f"[bold red]API Error:[/bold red] {e}")
-                console.print("[yellow]Retrying may help. The failed response was not added to history.[/yellow]")
+                if render:
+                    console.print(f"[bold red]API Error:[/bold red] {e}")
+                    console.print("[yellow]Retrying may help. The failed response was not added to history.[/yellow]")
                 break
 
             reasoning = self._extract_reasoning(msg)
-            self._display_reasoning(reasoning)
+            if render:
+                self._display_reasoning(reasoning)
 
             if self.provider in OPENAI_COMPATIBLE_PROVIDERS:
                 self.openai_history.append(self._build_openai_assistant_message(msg))
@@ -935,12 +939,15 @@ class CodeAssist:
             elif self.provider == "gemini":
                 content = cast(str, getattr(msg, 'text', '') or '')
             if content:
-                console.print(Panel(Markdown(content), title="WTFCode", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['success']))
-                send_notification("WTFcode: AI Answered", content[:100] + "..." if len(content) > 100 else content)
+                final_content = content
+                if render:
+                    console.print(Panel(Markdown(content), title="WTFCode", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['success']))
+                    send_notification("WTFcode: AI Answered", content[:100] + "..." if len(content) > 100 else content)
             break
+        return final_content
 
-    def ask_only(self, prompt: str) -> None:
-        """Standard Q&A mode without tool access for speed."""
+    def ask_only(self, prompt: str, render: bool = True) -> str:
+        """Standard Q&A mode without tool access for speed; return the answer text."""
         ask_system_prompt = "You are a helpful coding assistant. Answer the question directly."
         openai_messages: List[ChatCompletionMessageParam] = [
             {"role": "system", "content": ask_system_prompt},
@@ -963,7 +970,9 @@ class CodeAssist:
                         messages=openai_messages,
                     )
                 msg = response.choices[0].message
-                self._display_reasoning(self._extract_reasoning(msg))
+                reasoning = self._extract_reasoning(msg)
+                if render:
+                    self._display_reasoning(reasoning)
                 content = msg.content or ""
             elif self.provider == "anthropic":
                 client = cast(anthropic.Anthropic, self.client)
@@ -973,7 +982,9 @@ class CodeAssist:
                     system=ask_system_prompt,
                     messages=anthropic_messages,
                 )
-                self._display_reasoning(self._extract_reasoning(response))
+                reasoning = self._extract_reasoning(response)
+                if render:
+                    self._display_reasoning(reasoning)
                 content = self._extract_anthropic_text(response)
             elif self.provider == "gemini":
                 client = cast(genai.Client, self.client)
@@ -984,10 +995,13 @@ class CodeAssist:
                 content = cast(str, getattr(response, 'text', '') or '')
         except Exception as e:
             logger.exception("API call failed in ask mode")
-            console.print(f"[bold red]API Error:[/bold red] {e}")
-            return
-        console.print(Panel(Markdown(content), title="Ask Mode", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['panel.border']))
-        send_notification("WTFcode: AI Answered", content[:100] + "..." if len(content) > 100 else content)
+            if render:
+                console.print(f"[bold red]API Error:[/bold red] {e}")
+            return ""
+        if render:
+            console.print(Panel(Markdown(content), title="Ask Mode", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['panel.border']))
+            send_notification("WTFcode: AI Answered", content[:100] + "..." if len(content) > 100 else content)
+        return content
 
     def generate_commit_message(self) -> str:
         """Generate a commit message based on git diff."""
