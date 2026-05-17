@@ -1,21 +1,17 @@
 import os
 import yaml
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 def get_config_path() -> Path:
     """Get the path to the config file in the user's home directory."""
     home = Path.home()
     config_dir = home / ".wtfcode"
-    config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir / "config.yml"
 
-def load_config() -> Dict[str, Any]:
-    """Load the configuration from the YAML file."""
-    config_path = get_config_path()
-    
-    # Default configuration
-    default_config = {
+def get_default_config() -> Dict[str, Any]:
+    """Return the default configuration without touching the filesystem."""
+    return {
         "provider": "openai",
         "model": "gpt-4o",
         "api_keys": {
@@ -40,11 +36,17 @@ def load_config() -> Dict[str, Any]:
             "web_mode": False
         }
     }
+
+def load_config(create_if_missing: bool = False) -> Dict[str, Any]:
+    """Load configuration from disk, optionally creating the file explicitly."""
+    config_path = get_config_path()
+    default_config = get_default_config()
     
     if not config_path.exists():
-        # Create default config if it doesn't exist
-        with open(config_path, 'w', encoding='utf-8') as f:
-            yaml.dump(default_config, f, default_flow_style=False)
+        if create_if_missing:
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(config_path, 'w', encoding='utf-8') as f:
+                yaml.dump(default_config, f, default_flow_style=False)
         return default_config
     
     try:
@@ -72,7 +74,7 @@ def init_config() -> str:
     if config_path.exists():
         return f"Configuration already exists at {config_path}"
     
-    load_config() # This creates the file if it doesn't exist
+    load_config(create_if_missing=True)
     return f"Configuration initialized at {config_path}"
 
 def reload_config() -> Dict[str, Any]:
