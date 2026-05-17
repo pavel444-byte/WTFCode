@@ -577,7 +577,6 @@ class CodeAssist:
                 sys.exit(1)
             base_url = "https://openrouter.ai/api/v1" if provider == "openrouter" else None
             self.client = openai.OpenAI(api_key=api_key, base_url=base_url)
-            self.openai_history.append({"role": "system", "content": self.system_prompt})
         elif provider == "azure_openai":
             api_key = os.getenv("AZURE_OPENAI_API_KEY")
             endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -593,7 +592,6 @@ class CodeAssist:
                 azure_endpoint=endpoint,
                 api_version=api_version
             )
-            self.openai_history.append({"role": "system", "content": self.system_prompt})
         elif provider == "anthropic":
             api_key = os.getenv("ANTHROPIC_API_KEY")
             if not api_key:
@@ -606,14 +604,67 @@ class CodeAssist:
                 console.print("[bold red]Error:[/bold red] GOOGLE_API_KEY not found in environment or .env file.")
                 sys.exit(1)
             self.client = genai.Client(api_key=api_key)
-            self.gemini_history.append({"role": "user", "content": f"System instructions:\n{self.system_prompt}"})
         elif provider == "llama":
             base_url = os.getenv("LLAMA_BASE_URL", "http://localhost:11434")
             api_key = os.getenv("LLAMA_API_KEY", "ollama")
             self.client = openai.OpenAI(api_key=api_key, base_url=f"{base_url}/v1")
-            self.openai_history.append({"role": "system", "content": self.system_prompt})
         else:
             raise ValueError(f"Unsupported provider: {provider}")
+
+        self.reset_history()
+
+    def reset_history(self) -> None:
+        """Reset conversation history for the active provider."""
+        if self.provider in OPENAI_COMPATIBLE_PROVIDERS:
+            self.openai_history.clear()
+            self.openai_history.append({"role": "system", "content": self.system_prompt})
+        elif self.provider == "anthropic":
+            self.anthropic_history.clear()
+        elif self.provider == "gemini":
+            self.gemini_history.clear()
+            self.gemini_history.append({"role": "user", "content": f"System instructions:\n{self.system_prompt}"})
+
+    def _extract_text_from_content(self, content: Any) -> str:
+        """Extract text from provider-specific content payloads."""
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            text_parts: List[str] = []
+            for block in content:
+                if isinstance(block, str):
+                    text_parts.append(block)
+                    continue
+                if isinstance(block, dict):
+                    block_text = block.get("text") or block.get("content")
+                    if isinstance(block_text, str):
+                        text_parts.append(block_text)
+                    continue
+                block_text = getattr(block, "text", None) or getattr(block, "content", None)
+                if isinstance(block_text, str):
+                    text_parts.append(block_text)
+            return "\n".join(part for part in text_parts if part).strip()
+        return str(content)
+
+    def get_last_assistant_text(self) -> str:
+        """Return the last textual assistant response for the active provider."""
+        if self.provider in OPENAI_COMPATIBLE_PROVIDERS:
+            for message in reversed(self.openai_history):
+                if message.get("role") == "assistant":
+                    return self._extract_text_from_content(message.get("content"))
+            return ""
+        if self.provider == "anthropic":
+            for message in reversed(self.anthropic_history):
+                if message.get("role") == "assistant":
+                    return self._extract_text_from_content(message.get("content"))
+            return ""
+        if self.provider == "gemini":
+            for message in reversed(self.gemini_history):
+                if message.get("role") == "model":
+                    return self._extract_text_from_content(message.get("content"))
+            return ""
+        return ""
 
     def _validate_model(self) -> None:
         """Validate that the selected model exists in the provider. Uses a cache to avoid repeated API calls."""
