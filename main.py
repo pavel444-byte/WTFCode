@@ -362,13 +362,14 @@ def execute_command(command: str, silent: bool = False) -> str:
 
                 if process.stdout is None:
                     return "Error: Failed to capture command output."
+                stdout = process.stdout
 
                 def read_output() -> None:
                     try:
-                        for line in process.stdout:
+                        for line in stdout:
                             output_queue.put(line)
                     finally:
-                        process.stdout.close()
+                        stdout.close()
 
                 reader_thread = threading.Thread(target=read_output, daemon=True)
                 reader_thread.start()
