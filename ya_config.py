@@ -32,7 +32,7 @@ def get_default_config() -> Dict[str, Any]:
         "settings": {
             "notifications": True,
             "theme": "dark",
-            "multi_line_output": True,
+            "multi_line_input": True,
             "web_mode": False
         }
     }

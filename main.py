@@ -3,8 +3,6 @@ import sys
 import subprocess
 import json
 import shlex
-import queue
-import threading
 from typing import List, Dict, Any, Optional, Union, cast
 from dataclasses import dataclass
 from pathlib import Path
@@ -112,8 +110,8 @@ if not os.getenv("MODEL") and config.get("model"):
 if config.get("settings"):
     if "theme" in config["settings"] and not os.getenv("THEME"):
         os.environ["THEME"] = config["settings"]["theme"]
-    if "multi_line_output" in config["settings"] and not os.getenv("MULTI_LINE_OUTPUT"):
-        os.environ["MULTI_LINE_OUTPUT"] = str(config["settings"]["multi_line_output"]).lower()
+    if "multi_line_input" in config["settings"] and not os.getenv("MULTILINE_INPUT"):
+        os.environ["MULTILINE_INPUT"] = str(config["settings"]["multi_line_input"]).lower()
 
 console = Console()
 theme_manager = ThemeManager(console)
@@ -344,68 +342,6 @@ def execute_command(command: str, silent: bool = False) -> str:
             if confirm == "n":
                 return "Command execution skipped by user."
 
-        multi_line = os.getenv("MULTI_LINE_OUTPUT", "true").lower() == "true"
-
-        if multi_line and not silent:
-            output_lines: List[str] = []
-            output_queue: queue.Queue[str] = queue.Queue()
-
-            with Live(console=console, refresh_per_second=4) as live:
-                process = subprocess.Popen(
-                    args,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    cwd=PROJECT_ROOT,
-                    bufsize=1,
-                )
-
-                if process.stdout is None:
-                    return "Error: Failed to capture command output."
-                stdout = process.stdout
-
-                def read_output() -> None:
-                    try:
-                        for line in stdout:
-                            output_queue.put(line)
-                    finally:
-                        stdout.close()
-
-                reader_thread = threading.Thread(target=read_output, daemon=True)
-                reader_thread.start()
-
-                start_time = time.monotonic()
-                timed_out = False
-
-                while True:
-                    try:
-                        line = output_queue.get(timeout=0.1)
-                        output_lines.append(line)
-                        live.update(Panel("".join(output_lines), title="Command Output", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['panel.border']))
-                    except queue.Empty:
-                        pass
-
-                    if process.poll() is not None and output_queue.empty():
-                        break
-
-                    if time.monotonic() - start_time > COMMAND_TIMEOUT_SECONDS:
-                        timed_out = True
-                        _terminate_process(process)
-                        break
-
-                while not output_queue.empty():
-                    output_lines.append(output_queue.get())
-
-                reader_thread.join(timeout=COMMAND_TERMINATION_GRACE_SECONDS)
-
-                if output_lines:
-                    live.update(Panel("".join(output_lines), title="Command Output", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['panel.border']))
-
-                if timed_out:
-                    return _timeout_error()
-
-            return _format_command_output("".join(output_lines))
-
         result = subprocess.run(args, capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS, cwd=PROJECT_ROOT)
         output = result.stdout
         if result.stderr:
@@ -415,6 +351,24 @@ def execute_command(command: str, silent: bool = False) -> str:
         return _timeout_error()
     except Exception as e:
         return f"Error executing command: {str(e)}"
+
+
+def _read_user_query(mode: str) -> str:
+    mode_color = theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['prompt']
+    multi_input = os.getenv("MULTILINE_INPUT", "true").lower() == "true"
+
+    if not multi_input:
+        return cast(str, Prompt.ask(f"[{mode_color}]{mode}[/{mode_color}] [green]>"))
+
+    console.print(f"[{mode_color}]{mode}[/{mode_color}] [green]>(multi-line enabled, submit with empty line)[/green]")
+    lines: List[str] = []
+    while True:
+        line = console.input("")
+        if not line:
+            break
+        lines.append(line)
+
+    return "\n".join(lines)
 
 def glob_search(pattern: str) -> str:
     try:
@@ -1100,8 +1054,7 @@ def start_cli() -> None:
     
     while True:
         try:
-            mode_color = theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['prompt']
-            query = cast(str, Prompt.ask(f"[{mode_color}]{mode}[/{mode_color}] [green]>")).strip()
+            query = _read_user_query(mode).strip()
             
             if query == '/exit':
                 time.sleep(1.6)
@@ -1136,7 +1089,7 @@ def start_cli() -> None:
                     "[bold cyan]/init[/bold cyan] - Initialize AGENTS.md\n"
                     "[bold cyan]/config {option}[/bold cyan] - Manage config (reload, create)\n"
                     "[bold cyan]/exit[/bold cyan] - Exit the application\n"
-                    "[bold cyan]/multiline[/bold cyan] - Toggle multi-line terminal output\n"
+                    "[bold cyan]/multiinput[/bold cyan] - Toggle multi-line input mode\n"
                     "[bold cyan]/help[/bold cyan] - Show this help message",
                     title="Help", border_style=help_color
                 ))
@@ -1215,11 +1168,11 @@ def start_cli() -> None:
                     console.print("[bold red]Could not fetch available models.[/bold red]")
                 continue
 
-            if query == '/multiline':
-                current = os.getenv("MULTI_LINE_OUTPUT", "true").lower() == "true"
+            if query == '/multiinput':
+                current = os.getenv("MULTILINE_INPUT", "true").lower() == "true"
                 new_val = not current
-                os.environ["MULTI_LINE_OUTPUT"] = str(new_val).lower()
-                console.print(f"[bold green]Multi-line output {'enabled' if new_val else 'disabled'}.[/bold green]")
+                os.environ["MULTILINE_INPUT"] = str(new_val).lower()
+                console.print(f"[bold green]Multi-line input {'enabled' if new_val else 'disabled'}.[/bold green]")
                 continue
 
             if not query:
