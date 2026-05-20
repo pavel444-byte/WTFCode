@@ -3,6 +3,8 @@ import sys
 import subprocess
 import json
 import shlex
+import queue
+import threading
 from typing import List, Dict, Any, Optional, Union, cast
 from dataclasses import dataclass
 from pathlib import Path
@@ -341,6 +343,66 @@ def execute_command(command: str, silent: bool = False) -> str:
             ))
             if confirm == "n":
                 return "Command execution skipped by user."
+
+        if not silent:
+            output_lines: List[str] = []
+            output_queue: queue.Queue[str] = queue.Queue()
+
+            with Live(console=console, refresh_per_second=4) as live:
+                process = subprocess.Popen(
+                    args,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    cwd=PROJECT_ROOT,
+                    bufsize=1,
+                )
+
+                if process.stdout is None:
+                    return "Error: Failed to capture command output."
+                stdout = process.stdout
+
+                def read_output() -> None:
+                    try:
+                        for line in stdout:
+                            output_queue.put(line)
+                    finally:
+                        stdout.close()
+
+                reader_thread = threading.Thread(target=read_output, daemon=True)
+                reader_thread.start()
+
+                start_time = time.monotonic()
+                timed_out = False
+
+                while True:
+                    try:
+                        line = output_queue.get(timeout=0.1)
+                        output_lines.append(line)
+                        live.update(Panel("".join(output_lines), title="Command Output", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['panel.border']))
+                    except queue.Empty:
+                        pass
+
+                    if process.poll() is not None and output_queue.empty():
+                        break
+
+                    if time.monotonic() - start_time > COMMAND_TIMEOUT_SECONDS:
+                        timed_out = True
+                        _terminate_process(process)
+                        break
+
+                while not output_queue.empty():
+                    output_lines.append(output_queue.get())
+
+                reader_thread.join(timeout=COMMAND_TERMINATION_GRACE_SECONDS)
+
+                if output_lines:
+                    live.update(Panel("".join(output_lines), title="Command Output", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['panel.border']))
+
+                if timed_out:
+                    return _timeout_error()
+
+            return _format_command_output("".join(output_lines))
 
         result = subprocess.run(args, capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS, cwd=PROJECT_ROOT)
         output = result.stdout
