@@ -1,6 +1,6 @@
 #                                                                WTFCode
                                           
-                                  [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/pavel444-byte/WTFCode)
+                                  [Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/pavel444-byte/WTFCode)
 
 A powerful CLI-based coding assistant that helps you write, edit, and manage code autonomously.
 
