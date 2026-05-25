@@ -68,9 +68,14 @@ For windows:
 
 ## Usage
 
-Run the main script to start the assistant:
+Run CLI mode:
 ```bash
 wtfcode
 ```
 
 Follow the on-screen prompts to switch between **Agent** and **Ask** modes.
+
+Run Web mode (module-style invocation compatible with `web.py` imports):
+```bash
+uv run python -m streamlit run web.py
+```
