@@ -1,11 +1,6 @@
 import streamlit as st
 import os
-import sys
-from pathlib import Path
 from dotenv import load_dotenv
-
-# Add current directory to path so we can import from main
-sys.path.append(str(Path(__file__).parent))
 
 from main import CodeAssist, fetch_available_models
 
