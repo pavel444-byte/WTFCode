@@ -1,4 +1,5 @@
 import os
+import platform
 import yaml
 from pathlib import Path
 from typing import Any, Dict
@@ -41,9 +42,10 @@ def load_config(create_if_missing: bool = False) -> Dict[str, Any]:
     """Load configuration from disk, optionally creating the file explicitly."""
     config_path = get_config_path()
     default_config = get_default_config()
+    should_auto_create = platform.system().lower() in {"linux", "darwin"}
     
     if not config_path.exists():
-        if create_if_missing:
+        if create_if_missing or should_auto_create:
             config_path.parent.mkdir(parents=True, exist_ok=True)
             with open(config_path, 'w', encoding='utf-8') as f:
                 yaml.dump(default_config, f, default_flow_style=False)
