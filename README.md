@@ -30,6 +30,7 @@ WTFCode uses the following tools to interact with your environment:
 - `edit_file`: Performs surgical text replacements in existing files.
 - `execute_command`: Runs bash/shell commands.
 - `glob_search`: Finds files using pattern matching.
+- `mcp_call`: Calls a configured MCP server tool over stdio.
 
 ## Installation
 
@@ -66,6 +67,15 @@ For windows:
    PROVIDER=llama
    ```
 
+   Optional MCP server configuration in `~/.wtfcode/config.yml`:
+   ```yaml
+   mcp_servers:
+     filesystem:
+       command: "npx"
+       args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+       env: {}
+   ```
+
 ## Usage
 
 Run CLI mode:
@@ -74,6 +84,14 @@ wtfcode
 ```
 
 Follow the on-screen prompts to switch between **Agent** and **Ask** modes.
+
+MCP management command:
+```bash
+/mcp enable <server>
+/mcp disable <server>
+/mcp restart <server>
+/mcp install <server> <package_or_link> [extra_args...]
+```
 
 Run Web mode (module-style invocation compatible with `web.py` imports):
 ```bash

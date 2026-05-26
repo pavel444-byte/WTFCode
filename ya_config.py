@@ -30,6 +30,7 @@ def get_default_config() -> Dict[str, Any]:
         "llama": {
             "base_url": os.getenv("LLAMA_BASE_URL", "http://localhost:11434")
         },
+        "mcp_servers": {},
         "settings": {
             "notifications": True,
             "theme": "dark",
@@ -86,6 +87,54 @@ def reload_config() -> Dict[str, Any]:
     config.clear()
     config.update(new_config)
     return config
+
+def set_mcp_server_state(server: str, enabled: bool) -> str:
+    """Set an MCP server enabled/disabled state in memory and on disk (if config exists)."""
+    config.setdefault("mcp_server_states", {})
+    config["mcp_server_states"][server] = enabled
+
+    config_path = get_config_path()
+    if not config_path.exists():
+        state_text = "enabled" if enabled else "disabled"
+        return f"MCP server '{server}' {state_text} in memory. Config file not found at {config_path}."
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            current_config = yaml.safe_load(f) or {}
+        current_config.setdefault("mcp_server_states", {})
+        current_config["mcp_server_states"][server] = enabled
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(current_config, f, default_flow_style=False)
+        state_text = "enabled" if enabled else "disabled"
+        return f"MCP server '{server}' {state_text}."
+    except Exception as e:
+        return f"MCP server '{server}' updated in memory, but failed to persist config: {e}"
+
+
+def upsert_mcp_server(server: str, server_config: Dict[str, Any]) -> str:
+    """Create or update an MCP server config in memory and on disk (if config exists)."""
+    config.setdefault("mcp_servers", {})
+    existing = server in config["mcp_servers"] if isinstance(config.get("mcp_servers"), dict) else False
+    if not isinstance(config.get("mcp_servers"), dict):
+        config["mcp_servers"] = {}
+    config["mcp_servers"][server] = server_config
+
+    config_path = get_config_path()
+    action = "updated" if existing else "installed"
+    if not config_path.exists():
+        return f"MCP server '{server}' {action} in memory. Config file not found at {config_path}."
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            current_config = yaml.safe_load(f) or {}
+        if not isinstance(current_config.get("mcp_servers"), dict):
+            current_config["mcp_servers"] = {}
+        current_config["mcp_servers"][server] = server_config
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(current_config, f, default_flow_style=False)
+        return f"MCP server '{server}' {action}."
+    except Exception as e:
+        return f"MCP server '{server}' {action} in memory, but failed to persist config: {e}"
 
 # Global config instance
 config = load_config()
