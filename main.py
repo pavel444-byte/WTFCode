@@ -498,7 +498,7 @@ def mcp_call(server: str, tool: str, arguments: Optional[Dict[str, Any]] = None)
         _rpc("initialize", {
             "protocolVersion": "2024-11-05",
             "capabilities": {},
-            "clientInfo": {"name": "wtfcode", "version": "1.0.4"},
+            "clientInfo": {"name": "wtfcode", "version": "1.0.5"},
         })
         _rpc("notifications/initialized", {}, expect_response=False)
         result = _rpc("tools/call", {"name": tool, "arguments": arguments or {}}) or {}

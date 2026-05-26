@@ -1,5 +1,10 @@
 # Changelog
 
+## WTFCode 1.0.5 - 2026-05-26
+
+### Changed
+- Bumped project version metadata from 1.0.4 to 1.0.5 across packaging metadata, runtime client info, and README release header.
+
 ## WTFCode 1.0.4 - 2026-05-17
 
 ### Fixed
