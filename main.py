@@ -3,6 +3,7 @@ import sys
 import subprocess
 import json
 import shlex
+import uuid
 import queue
 import threading
 from typing import List, Dict, Any, Optional, Union, cast
@@ -59,11 +60,11 @@ except ImportError:
 
 # Import local modules with fallback for package imports
 try:
-    from ya_config import config, init_config, reload_config, get_config_path
+    from ya_config import config, init_config, reload_config, get_config_path, set_mcp_server_state, upsert_mcp_server
     from theme_manager import ThemeManager
 except ImportError:
     try:
-        from .ya_config import config, init_config, reload_config, get_config_path
+        from .ya_config import config, init_config, reload_config, get_config_path, set_mcp_server_state, upsert_mcp_server
         from .theme_manager import ThemeManager
     except ImportError as e:
         # If both fail, provide helpful error message
@@ -439,6 +440,78 @@ def glob_search(pattern: str) -> str:
     except Exception as e:
         return f"Error during glob search: {str(e)}"
 
+def mcp_call(server: str, tool: str, arguments: Optional[Dict[str, Any]] = None) -> str:
+    """Call a tool from a configured MCP server over stdio JSON-RPC."""
+    states = config.get("mcp_server_states", {})
+    if isinstance(states, dict) and states.get(server) is False:
+        return f"MCP server '{server}' is disabled. Run /mcp enable {server} to use it."
+    servers = config.get("mcp_servers", {})
+    if not isinstance(servers, dict) or server not in servers:
+        return f"MCP server '{server}' not found in config['mcp_servers']."
+    server_cfg = servers.get(server) or {}
+    command = server_cfg.get("command")
+    args = server_cfg.get("args", [])
+    env = server_cfg.get("env", {})
+    if not command:
+        return f"MCP server '{server}' is missing required 'command' in configuration."
+
+    proc_env = os.environ.copy()
+    if isinstance(env, dict):
+        proc_env.update({str(k): str(v) for k, v in env.items()})
+
+    try:
+        process = subprocess.Popen(
+            [str(command), *[str(a) for a in args]],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=proc_env,
+        )
+    except Exception as e:
+        return f"Failed to start MCP server '{server}': {e}"
+
+    def _rpc(method: str, params: Optional[Dict[str, Any]] = None, expect_response: bool = True) -> Optional[Dict[str, Any]]:
+        if not process.stdin or not process.stdout:
+            raise RuntimeError("MCP process pipes are unavailable.")
+        request: Dict[str, Any] = {"jsonrpc": "2.0", "method": method}
+        req_id = str(uuid.uuid4())
+        if params is not None:
+            request["params"] = params
+        if expect_response:
+            request["id"] = req_id
+        process.stdin.write(json.dumps(request) + "\n")
+        process.stdin.flush()
+        if not expect_response:
+            return None
+        while True:
+            line = process.stdout.readline()
+            if not line:
+                raise RuntimeError("MCP server closed the stream unexpectedly.")
+            msg = json.loads(line)
+            if msg.get("id") == req_id:
+                if "error" in msg:
+                    raise RuntimeError(str(msg["error"]))
+                return cast(Dict[str, Any], msg.get("result", {}))
+
+    try:
+        _rpc("initialize", {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "wtfcode", "version": "1.0.4"},
+        })
+        _rpc("notifications/initialized", {}, expect_response=False)
+        result = _rpc("tools/call", {"name": tool, "arguments": arguments or {}}) or {}
+        return json.dumps(result, ensure_ascii=False)
+    except Exception as e:
+        return f"Error calling MCP tool '{tool}' on server '{server}': {e}"
+    finally:
+        try:
+            process.terminate()
+            process.wait(timeout=2)
+        except Exception:
+            process.kill()
+
 def git_commit(message: str) -> str:
     """Commit all changes in the repository with the given message."""
     try:
@@ -580,6 +653,19 @@ TOOL_SPECS = [
                 "message": {"type": "string", "description": "The commit message."}
             },
             "required": ["message"],
+        },
+    ),
+    ToolSpec(
+        name="mcp_call",
+        description="Call a configured MCP server tool over stdio.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "server": {"type": "string", "description": "MCP server name from config.mcp_servers."},
+                "tool": {"type": "string", "description": "Tool name exposed by the MCP server."},
+                "arguments": {"type": "object", "description": "Arguments object passed to the MCP tool."},
+            },
+            "required": ["server", "tool"],
         },
     ),
 ]
@@ -777,6 +863,8 @@ class CodeAssist:
                 return glob_search(**args)
             if name == "git_commit":
                 return git_commit(**args)
+            if name == "mcp_call":
+                return mcp_call(**args)
             return f"Unknown tool: {name}"
 
     def _build_openai_assistant_message(self, msg: Any) -> ChatCompletionAssistantMessageParam:
@@ -1150,6 +1238,8 @@ def start_cli() -> None:
                     "[bold cyan]/commit[/bold cyan] - Generate a commit message and commit all changes\n"
                     "[bold cyan]/init[/bold cyan] - Initialize AGENTS.md\n"
                     "[bold cyan]/config {option}[/bold cyan] - Manage config (reload, create)\n"
+                    "[bold cyan]/mcp {enable|disable|restart} {server}[/bold cyan] - Manage MCP server state\n"
+                    "[bold cyan]/mcp install {server} {package_or_link} [extra_args...][/bold cyan] - Install and enable MCP server\n"
                     "[bold cyan]/exit[/bold cyan] - Exit the application\n"
                     "[bold cyan]/multiinput[/bold cyan] - Toggle multi-line input mode\n"
                     "[bold cyan]/help[/bold cyan] - Show this help message",
@@ -1178,6 +1268,45 @@ def start_cli() -> None:
                     with console.status("[bold cyan]Reloading config..."):
                         reload_config()
                     console.print(f"[bold green]Config reloaded from {get_config_path()}[/bold green]")
+                continue
+            if query.startswith('/mcp'):
+                parts = query.split()
+                if len(parts) < 3:
+                    console.print("[bold yellow]Usage:[/bold yellow] /mcp {enable|disable|restart} {server} | /mcp install {server} {package_or_link} [extra_args...]")
+                    continue
+                action = parts[1].lower()
+                server = parts[2]
+
+                if action == "install":
+                    if len(parts) < 4:
+                        console.print("[bold yellow]Usage:[/bold yellow] /mcp install {server} {package_or_link} [extra_args...]")
+                        continue
+                    package_or_link = parts[3]
+                    extra_args = parts[4:]
+                    server_config = {
+                        "command": "npx",
+                        "args": ["-y", package_or_link, *extra_args],
+                        "env": {}
+                    }
+                    install_msg = upsert_mcp_server(server, server_config)
+                    enable_msg = set_mcp_server_state(server, True)
+                    console.print(f"[bold green]{install_msg} {enable_msg}[/bold green]")
+                    continue
+
+                servers = config.get("mcp_servers", {})
+                if not isinstance(servers, dict) or server not in servers:
+                    console.print(f"[bold red]Error:[/bold red] MCP server '{server}' not found in config.mcp_servers")
+                    continue
+                if action == "enable":
+                    console.print(f"[bold green]{set_mcp_server_state(server, True)}[/bold green]")
+                elif action == "disable":
+                    console.print(f"[bold green]{set_mcp_server_state(server, False)}[/bold green]")
+                elif action == "restart":
+                    disable_msg = set_mcp_server_state(server, False)
+                    enable_msg = set_mcp_server_state(server, True)
+                    console.print(f"[bold green]{disable_msg} {enable_msg} Restart requested.[/bold green]")
+                else:
+                    console.print("[bold yellow]Usage:[/bold yellow] /mcp {enable|disable|restart} {server} | /mcp install {server} {package_or_link} [extra_args...]")
                 continue
             if query == '/commit':
                 with console.status("[bold cyan]Generating commit message..."):
