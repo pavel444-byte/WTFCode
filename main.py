@@ -816,7 +816,7 @@ class CodeAssist:
         return mime_type
 
     def add_context_image(self, path: str) -> str:
-        """Attach an image file to future AI requests."""
+        """Attach an image file to the next AI request."""
         image_path = self._resolve_image_path(path)
         mime_type = self._detect_image_mime_type(image_path)
         if any(item.path == image_path for item in self.context_images):
@@ -825,7 +825,7 @@ class CodeAssist:
         return f"Added image to context: {image_path}"
 
     def remove_context_image(self, target: str) -> str:
-        """Remove an image from future AI requests by path or 1-based list index."""
+        """Remove an image from the next AI request by path or 1-based list index."""
         if not self.context_images:
             return "No images are currently attached to context."
         target = target.strip()
@@ -847,7 +847,7 @@ class CodeAssist:
         return f"Image is not currently in context: {image_path}"
 
     def list_context_images(self) -> str:
-        """List images attached to future AI requests."""
+        """List images attached to the next AI request."""
         if not self.context_images:
             return "No images are currently attached to context."
         lines = ["Images attached to context:"]
@@ -859,7 +859,12 @@ class CodeAssist:
         if not self.context_images:
             return prompt
         image_list = "\n".join(f"- {image.path}" for image in self.context_images)
-        return f"{prompt}\n\nAttached image context:\n{image_list}"
+        return f"{prompt}\n\nAttached image context for this message only:\n{image_list}"
+
+    def _clear_used_context_images(self, had_context_images: bool) -> None:
+        """Remove one-shot image attachments after a message has used them."""
+        if had_context_images:
+            self.context_images.clear()
 
     def _encode_context_image(self, image: ContextImage) -> str:
         return base64.b64encode(image.path.read_bytes()).decode("ascii")
@@ -1093,6 +1098,7 @@ class CodeAssist:
 
     def run_agent(self, prompt: str, render: bool = True) -> str:
         """Run agent mode with tool access and return the final assistant text."""
+        had_context_images = bool(self.context_images)
         openai_user_message_index = len(self.openai_history) if self.provider in OPENAI_COMPATIBLE_PROVIDERS else -1
         anthropic_user_message_index = len(self.anthropic_history) if self.provider == "anthropic" else -1
         self.add_context_message(prompt, include_images=True)
@@ -1198,10 +1204,12 @@ class CodeAssist:
             for message in self.gemini_history:
                 if "parts" in message:
                     message.pop("parts", None)
+        self._clear_used_context_images(had_context_images)
         return final_content
 
     def ask_only(self, prompt: str, render: bool = True) -> str:
         """Standard Q&A mode without tool access for speed; return the answer text."""
+        had_context_images = bool(self.context_images)
         ask_system_prompt = "You are a helpful coding assistant. Answer the question directly."
         openai_messages: List[ChatCompletionMessageParam] = [
             {"role": "system", "content": ask_system_prompt},
@@ -1253,10 +1261,12 @@ class CodeAssist:
             logger.exception("API call failed in ask mode")
             if render:
                 console.print(f"[bold red]API Error:[/bold red] {e}")
+            self._clear_used_context_images(had_context_images)
             return ""
         if render:
             console.print(Panel(Markdown(content), title="Ask Mode", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['panel.border']))
             send_notification("WTFcode: AI Answered", content[:100] + "..." if len(content) > 100 else content)
+        self._clear_used_context_images(had_context_images)
         return content
 
     def generate_commit_message(self) -> str:

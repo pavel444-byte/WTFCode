@@ -70,7 +70,7 @@ def main():
             st.session_state.assistant.clear_context()
             st.rerun()
 
-        st.caption("Use `/context clear` to reset AI context, or `/context image {list|add|remove}` to manage image attachments.")
+        st.caption("Use `/context clear` to reset AI context, or `/context image {list|add|remove}` to manage one-shot image attachments.")
 
     # Display chat messages
     for message in st.session_state.messages:

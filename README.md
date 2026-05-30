@@ -101,7 +101,7 @@ Context management commands:
 /context image remove {index|all|/path/to/image.png}
 ```
 
-Image context supports PNG, JPEG, GIF, and WebP files. Attached images are sent with future Agent and Ask requests until removed or cleared.
+Image context supports PNG, JPEG, GIF, and WebP files. Attached images are sent with the next Agent or Ask request, then automatically removed from context after that message.
 
 Run Web mode (module-style invocation compatible with `web.py` imports):
 ```bash
