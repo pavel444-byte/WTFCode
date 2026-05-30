@@ -9,11 +9,10 @@ A powerful CLI-based coding assistant that helps you write, edit, and manage cod
 
 ## Latest Release
 
-**WTFCode 1.0.5** focuses on stability for CLI/Web/Desktop usage:
-- safer command streaming with timeout handling;
-- fixed Streamlit chat history and Agent Mode rendering;
-- assistant methods now return generated text for UI integrations;
-- config/theme writes are now explicit instead of happening during imports.
+**WTFCode 1.0.6** refreshes release metadata for the latest package build:
+- bumped packaging metadata to 1.0.6;
+- updated runtime MCP client version reporting;
+- refreshed release documentation and lock metadata.
 
 See [`CHANGELOG.md`](CHANGELOG.md) for full release notes.
 
