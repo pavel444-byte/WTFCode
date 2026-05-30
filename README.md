@@ -93,6 +93,16 @@ MCP management command:
 /mcp install <server> <package_or_link> [extra_args...]
 ```
 
+Context management commands:
+```bash
+/context clear
+/context image add /path/to/image.png
+/context image list
+/context image remove {index|all|/path/to/image.png}
+```
+
+Image context supports PNG, JPEG, GIF, and WebP files. Attached images are sent with future Agent and Ask requests until removed or cleared.
+
 Run Web mode (module-style invocation compatible with `web.py` imports):
 ```bash
 uv run python -m streamlit run web.py

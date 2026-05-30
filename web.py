@@ -2,7 +2,7 @@ import streamlit as st
 import os
 from dotenv import load_dotenv
 
-from main import CodeAssist, fetch_available_models
+from main import CodeAssist, fetch_available_models, handle_context_command
 
 def init_session_state():
     if "messages" not in st.session_state:
@@ -67,8 +67,10 @@ def main():
         
         if st.button("Clear Chat"):
             st.session_state.messages = []
-            st.session_state.assistant.reset_history()
+            st.session_state.assistant.clear_context()
             st.rerun()
+
+        st.caption("Use `/context clear` to reset AI context, or `/context image {list|add|remove}` to manage image attachments.")
 
     # Display chat messages
     for message in st.session_state.messages:
@@ -81,7 +83,13 @@ def main():
             st.warning("Exiting WTFCode...")
             # Kill the process
             os._exit(0)
-            
+
+        if prompt.strip().startswith("/context"):
+            result = handle_context_command(st.session_state.assistant, prompt.strip())
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            st.session_state.messages.append({"role": "assistant", "content": result})
+            st.rerun()
+
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)

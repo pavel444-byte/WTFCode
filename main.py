@@ -4,6 +4,8 @@ import subprocess
 import json
 import shlex
 import uuid
+import base64
+import mimetypes
 import queue
 import threading
 from typing import List, Dict, Any, Optional, Union, cast
@@ -576,6 +578,13 @@ Guidelines:
 5. If a command is dangerous, warn the user first (though in this CLI, they are auto-executed)."""
 
 OPENAI_COMPATIBLE_PROVIDERS = {"openai", "openrouter", "azure_openai", "llama"}
+SUPPORTED_IMAGE_MIME_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+
+@dataclass(frozen=True)
+class ContextImage:
+    path: Path
+    mime_type: str
 
 
 @dataclass(frozen=True)
@@ -706,6 +715,7 @@ class CodeAssist:
         self.openai_history: List[ChatCompletionMessageParam] = []
         self.anthropic_history: List[MessageParam] = []
         self.gemini_history: List[Dict[str, str]] = []
+        self.context_images: List[ContextImage] = []
         if model is None:
             if provider == "openai":
                 model = "gpt-4o"
@@ -781,6 +791,129 @@ class CodeAssist:
             self.gemini_history.clear()
             self.gemini_history.append({"role": "user", "content": f"System instructions:\n{self.system_prompt}"})
 
+    def clear_context(self) -> None:
+        """Clear conversation history and all attached image context."""
+        self.context_images.clear()
+        self.reset_history()
+
+    def _resolve_image_path(self, path: str) -> Path:
+        image_path = Path(path).expanduser()
+        if not image_path.is_absolute():
+            image_path = (PROJECT_ROOT / image_path).resolve()
+        else:
+            image_path = image_path.resolve()
+        if not image_path.exists():
+            raise FileNotFoundError(f"Image '{path}' not found.")
+        if not image_path.is_file():
+            raise ValueError(f"Image '{path}' is not a file.")
+        return image_path
+
+    def _detect_image_mime_type(self, path: Path) -> str:
+        mime_type, _ = mimetypes.guess_type(path.name)
+        if mime_type not in SUPPORTED_IMAGE_MIME_TYPES:
+            supported = ", ".join(sorted(SUPPORTED_IMAGE_MIME_TYPES))
+            raise ValueError(f"Unsupported image type for '{path}'. Supported types: {supported}.")
+        return mime_type
+
+    def add_context_image(self, path: str) -> str:
+        """Attach an image file to future AI requests."""
+        image_path = self._resolve_image_path(path)
+        mime_type = self._detect_image_mime_type(image_path)
+        if any(item.path == image_path for item in self.context_images):
+            return f"Image already in context: {image_path}"
+        self.context_images.append(ContextImage(path=image_path, mime_type=mime_type))
+        return f"Added image to context: {image_path}"
+
+    def remove_context_image(self, target: str) -> str:
+        """Remove an image from future AI requests by path or 1-based list index."""
+        if not self.context_images:
+            return "No images are currently attached to context."
+        target = target.strip()
+        if target.lower() in {"all", "*"}:
+            removed_count = len(self.context_images)
+            self.context_images.clear()
+            return f"Removed {removed_count} image(s) from context."
+        if target.isdigit():
+            index = int(target) - 1
+            if 0 <= index < len(self.context_images):
+                removed = self.context_images.pop(index)
+                return f"Removed image from context: {removed.path}"
+            return f"Image index out of range: {target}"
+        image_path = self._resolve_image_path(target)
+        for index, image in enumerate(self.context_images):
+            if image.path == image_path:
+                removed = self.context_images.pop(index)
+                return f"Removed image from context: {removed.path}"
+        return f"Image is not currently in context: {image_path}"
+
+    def list_context_images(self) -> str:
+        """List images attached to future AI requests."""
+        if not self.context_images:
+            return "No images are currently attached to context."
+        lines = ["Images attached to context:"]
+        for index, image in enumerate(self.context_images, start=1):
+            lines.append(f"{index}. {image.path} ({image.mime_type})")
+        return "\n".join(lines)
+
+    def _build_context_text(self, prompt: str) -> str:
+        if not self.context_images:
+            return prompt
+        image_list = "\n".join(f"- {image.path}" for image in self.context_images)
+        return f"{prompt}\n\nAttached image context:\n{image_list}"
+
+    def _encode_context_image(self, image: ContextImage) -> str:
+        return base64.b64encode(image.path.read_bytes()).decode("ascii")
+
+    def _build_openai_user_message(self, prompt: str) -> ChatCompletionMessageParam:
+        if not self.context_images:
+            return {"role": "user", "content": prompt}
+        content: List[Dict[str, Any]] = [{"type": "text", "text": self._build_context_text(prompt)}]
+        for image in self.context_images:
+            encoded = self._encode_context_image(image)
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{image.mime_type};base64,{encoded}"},
+            })
+        return cast(ChatCompletionMessageParam, {"role": "user", "content": content})
+
+    def _build_anthropic_user_message(self, prompt: str) -> MessageParam:
+        if not self.context_images:
+            return {"role": "user", "content": prompt}
+        content: List[Dict[str, Any]] = [{"type": "text", "text": self._build_context_text(prompt)}]
+        for image in self.context_images:
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": image.mime_type,
+                    "data": self._encode_context_image(image),
+                },
+            })
+        return cast(MessageParam, {"role": "user", "content": content})
+
+    def _build_gemini_user_message(self, prompt: str) -> Dict[str, Any]:
+        if not self.context_images:
+            return {"role": "user", "content": prompt}
+        parts: List[Dict[str, Any]] = [{"text": self._build_context_text(prompt)}]
+        for image in self.context_images:
+            parts.append({
+                "inline_data": {
+                    "mime_type": image.mime_type,
+                    "data": self._encode_context_image(image),
+                }
+            })
+        return {"role": "user", "parts": parts, "content": self._build_context_text(prompt)}
+
+    def _strip_openai_image_content(self, message: ChatCompletionMessageParam) -> ChatCompletionMessageParam:
+        if message.get("role") != "user" or not isinstance(message.get("content"), list):
+            return message
+        return cast(ChatCompletionMessageParam, {"role": "user", "content": self._extract_text_from_content(message.get("content"))})
+
+    def _strip_anthropic_image_content(self, message: MessageParam) -> MessageParam:
+        if message.get("role") != "user" or not isinstance(message.get("content"), list):
+            return message
+        return cast(MessageParam, {"role": "user", "content": self._extract_text_from_content(message.get("content"))})
+
     def _extract_text_from_content(self, content: Any) -> str:
         """Extract text from provider-specific content payloads."""
         if content is None:
@@ -840,13 +973,16 @@ class CodeAssist:
         else:
             console.print(f"[bold green]Model validated:[/bold green] {self.model}")
 
-    def add_context_message(self, content: str) -> None:
+    def add_context_message(self, content: str, include_images: bool = False) -> None:
         if self.provider in OPENAI_COMPATIBLE_PROVIDERS:
-            self.openai_history.append({"role": "user", "content": content})
+            message = self._build_openai_user_message(content) if include_images else {"role": "user", "content": content}
+            self.openai_history.append(message)
         elif self.provider == "anthropic":
-            self.anthropic_history.append({"role": "user", "content": content})
+            message = self._build_anthropic_user_message(content) if include_images else {"role": "user", "content": content}
+            self.anthropic_history.append(message)
         elif self.provider == "gemini":
-            self.gemini_history.append({"role": "user", "content": content})
+            message = self._build_gemini_user_message(content) if include_images else {"role": "user", "content": content}
+            self.gemini_history.append(cast(Dict[str, str], message))
 
     def _run_local_tool(self, name: str, args: Dict[str, Any]) -> str:
         info_color = theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['info']
@@ -957,7 +1093,9 @@ class CodeAssist:
 
     def run_agent(self, prompt: str, render: bool = True) -> str:
         """Run agent mode with tool access and return the final assistant text."""
-        self.add_context_message(prompt)
+        openai_user_message_index = len(self.openai_history) if self.provider in OPENAI_COMPATIBLE_PROVIDERS else -1
+        anthropic_user_message_index = len(self.anthropic_history) if self.provider == "anthropic" else -1
+        self.add_context_message(prompt, include_images=True)
         final_content = ""
         
         while True:
@@ -995,10 +1133,13 @@ class CodeAssist:
 
                 elif self.provider == "gemini":
                     client = cast(genai.Client, self.client)
-                    gemini_messages = [
-                        {"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]}
-                        for m in self.gemini_history
-                    ]
+                    gemini_messages = []
+                    for m in self.gemini_history:
+                        role = "user" if m["role"] == "user" else "model"
+                        if "parts" in m:
+                            gemini_messages.append({"role": role, "parts": cast(Any, m["parts"])})
+                        else:
+                            gemini_messages.append({"role": role, "parts": [m["content"]]})
                     response = client.models.generate_content(
                         model=self.model,
                         contents=cast(Any, gemini_messages),
@@ -1049,6 +1190,14 @@ class CodeAssist:
                     console.print(Panel(Markdown(content), title="WTFCode", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['success']))
                     send_notification("WTFcode: AI Answered", content[:100] + "..." if len(content) > 100 else content)
             break
+        if self.provider in OPENAI_COMPATIBLE_PROVIDERS and openai_user_message_index >= 0 and openai_user_message_index < len(self.openai_history):
+            self.openai_history[openai_user_message_index] = self._strip_openai_image_content(self.openai_history[openai_user_message_index])
+        if self.provider == "anthropic" and anthropic_user_message_index >= 0 and anthropic_user_message_index < len(self.anthropic_history):
+            self.anthropic_history[anthropic_user_message_index] = self._strip_anthropic_image_content(self.anthropic_history[anthropic_user_message_index])
+        if self.provider == "gemini":
+            for message in self.gemini_history:
+                if "parts" in message:
+                    message.pop("parts", None)
         return final_content
 
     def ask_only(self, prompt: str, render: bool = True) -> str:
@@ -1056,9 +1205,9 @@ class CodeAssist:
         ask_system_prompt = "You are a helpful coding assistant. Answer the question directly."
         openai_messages: List[ChatCompletionMessageParam] = [
             {"role": "system", "content": ask_system_prompt},
-            {"role": "user", "content": prompt},
+            self._build_openai_user_message(prompt),
         ]
-        anthropic_messages: List[MessageParam] = [{"role": "user", "content": prompt}]
+        anthropic_messages: List[MessageParam] = [self._build_anthropic_user_message(prompt)]
         content: str = ""
         try:
             if self.provider in OPENAI_COMPATIBLE_PROVIDERS:
@@ -1093,9 +1242,11 @@ class CodeAssist:
                 content = self._extract_anthropic_text(response)
             elif self.provider == "gemini":
                 client = cast(genai.Client, self.client)
+                gemini_user = self._build_gemini_user_message(f"System: {ask_system_prompt}\nUser: {prompt}")
+                contents = cast(Any, [{"role": "user", "parts": gemini_user.get("parts", [gemini_user["content"]])}])
                 response = client.models.generate_content(
                     model=self.model,
-                    contents=f"System: {ask_system_prompt}\nUser: {prompt}",
+                    contents=contents,
                 )
                 content = cast(str, getattr(response, 'text', '') or '')
         except Exception as e:
@@ -1150,6 +1301,37 @@ class CodeAssist:
             content = cast(str, getattr(response, 'text', '') or 'Update')
             
         return content.strip().strip('"').strip("'")
+
+
+def handle_context_command(assistant: CodeAssist, command: str) -> str:
+    """Handle /context commands for clearing and managing image context."""
+    try:
+        parts = shlex.split(command)
+    except ValueError as exc:
+        return f"Invalid /context command: {exc}"
+
+    if len(parts) >= 2 and parts[1].lower() == "clear":
+        assistant.clear_context()
+        return "Cleared AI conversation and image context."
+
+    if len(parts) >= 3 and parts[1].lower() == "image":
+        action = parts[2].lower()
+        try:
+            if action == "list":
+                return assistant.list_context_images()
+            if action == "add":
+                if len(parts) < 4:
+                    return "Usage: /context image add /path/to/image"
+                return assistant.add_context_image(" ".join(parts[3:]))
+            if action == "remove":
+                if len(parts) < 4:
+                    return "Usage: /context image remove {index|all|/path/to/image}"
+                return assistant.remove_context_image(" ".join(parts[3:]))
+        except (OSError, ValueError) as exc:
+            return f"Error: {exc}"
+
+    return "Usage: /context clear | /context image {list|add|remove} [/path/to/image]"
+
 
 def start_cli() -> None:
 
@@ -1240,6 +1422,8 @@ def start_cli() -> None:
                     "[bold cyan]/config {option}[/bold cyan] - Manage config (reload, create)\n"
                     "[bold cyan]/mcp {enable|disable|restart} {server}[/bold cyan] - Manage MCP server state\n"
                     "[bold cyan]/mcp install {server} {package_or_link} [extra_args...][/bold cyan] - Install and enable MCP server\n"
+                    "[bold cyan]/context clear[/bold cyan] - Clear AI conversation and image context\n"
+                    "[bold cyan]/context image {list|add|remove}[/bold cyan] - Manage image context attachments\n"
                     "[bold cyan]/exit[/bold cyan] - Exit the application\n"
                     "[bold cyan]/multiinput[/bold cyan] - Toggle multi-line input mode\n"
                     "[bold cyan]/help[/bold cyan] - Show this help message",
@@ -1268,6 +1452,10 @@ def start_cli() -> None:
                     with console.status("[bold cyan]Reloading config..."):
                         reload_config()
                     console.print(f"[bold green]Config reloaded from {get_config_path()}[/bold green]")
+                continue
+            if query.startswith('/context'):
+                result = handle_context_command(assistant, query)
+                console.print(f"[bold green]{result}[/bold green]")
                 continue
             if query.startswith('/mcp'):
                 parts = query.split()
