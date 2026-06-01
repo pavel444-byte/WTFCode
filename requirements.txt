@@ -10,7 +10,7 @@ requests>=2.32.0
 streamlit>=1.41.0
 pyyaml>=6.0.3
 customtkinter>=5.2.2
-Pillow>=11.0.0
+Pillow>=12.2.0
 
 # Optional Windows-only notification/window helpers. These must not be installed
 # on Linux GitHub Actions runners because their winrt dependencies are Windows-only.
