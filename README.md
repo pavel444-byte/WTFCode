@@ -92,6 +92,15 @@ MCP management command:
 /mcp install <server> <package_or_link> [extra_args...]
 ```
 
+LSP management commands:
+```bash
+/lsp install <package_or_url> [args...]
+/lsp on <lsp> [args...]
+/lsp off <lsp> [args...]
+```
+
+`/lsp install` stores an LSP entry in `~/.wtfcode/config.yml`, enables it, and mirrors the JSON configuration into `.env` when that file exists. Package names use `npx -y`; URL-style entries use `uvx`. You can also manage `lsp_servers` and `lsp_server_states` manually in config, or with `LSP_SERVERS` and `LSP_SERVER_STATES` JSON values in `.env`.
+
 Context management commands:
 ```bash
 /context clear
