@@ -75,7 +75,8 @@ def get_default_config() -> Dict[str, Any]:
             "notifications": True,
             "theme": "dark",
             "multi_line_input": True,
-            "web_mode": False
+            "web_mode": False,
+            "tui_mode": False
         }
     }
 
@@ -220,6 +221,46 @@ def set_lsp_server_state(server: str, enabled: bool, arguments: Optional[list[st
     if not config_path.exists():
         return f"LSP server '{server}' {state_text} in memory. Config file not found at {config_path}.{env_note}"
     return f"LSP server '{server}' {state_text}.{env_note}"
+
+
+def set_tui_mode(enabled: bool) -> str:
+    """Set TUI mode in memory, config.yml, and .env (when present)."""
+    config.setdefault("settings", {})
+    if not isinstance(config.get("settings"), dict):
+        config["settings"] = {}
+    config["settings"]["tui_mode"] = enabled
+
+    config_path = get_config_path()
+    if config_path.exists():
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                current_config = yaml.safe_load(f) or {}
+            current_config.setdefault("settings", {})
+            current_config["settings"]["tui_mode"] = enabled
+            with open(config_path, "w", encoding="utf-8") as f:
+                yaml.dump(current_config, f, default_flow_style=False)
+        except Exception as e:
+            return f"TUI mode updated in memory, but failed to persist config: {e}"
+
+    env_path = get_project_env_path()
+    env_updated = False
+    if env_path.exists():
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+        replacement = f"TUI_MODE={str(enabled).lower()}"
+        for index, line in enumerate(lines):
+            if line.startswith("TUI_MODE="):
+                lines[index] = replacement
+                break
+        else:
+            lines.append(replacement)
+        env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        env_updated = True
+
+    state_text = "enabled" if enabled else "disabled"
+    env_note = " Updated .env." if env_updated else ""
+    if not config_path.exists():
+        return f"TUI mode {state_text} in memory. Config file not found at {config_path}.{env_note}"
+    return f"TUI mode {state_text}.{env_note}"
 
 
 def upsert_lsp_server(server: str, server_config: Dict[str, Any]) -> str:

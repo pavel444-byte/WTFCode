@@ -31,4 +31,4 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 [tool.setuptools]
-py-modules = ["main", "ya_config", "theme_manager", "web", "dekstop"]
+py-modules = ["main", "ya_config", "theme_manager", "web", "dekstop", "tui"]

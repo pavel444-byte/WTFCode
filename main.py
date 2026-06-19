@@ -62,11 +62,11 @@ except ImportError:
 
 # Import local modules with fallback for package imports
 try:
-    from ya_config import config, init_config, reload_config, get_config_path, set_mcp_server_state, set_lsp_server_state, upsert_mcp_server, upsert_lsp_server
+    from ya_config import config, init_config, reload_config, get_config_path, set_mcp_server_state, set_lsp_server_state, set_tui_mode, upsert_mcp_server, upsert_lsp_server
     from theme_manager import ThemeManager
 except ImportError:
     try:
-        from .ya_config import config, init_config, reload_config, get_config_path, set_mcp_server_state, set_lsp_server_state, upsert_mcp_server, upsert_lsp_server
+        from .ya_config import config, init_config, reload_config, get_config_path, set_mcp_server_state, set_lsp_server_state, set_tui_mode, upsert_mcp_server, upsert_lsp_server
         from .theme_manager import ThemeManager
     except ImportError as e:
         # If both fail, provide helpful error message
@@ -117,6 +117,8 @@ if config.get("settings"):
         os.environ["THEME"] = config["settings"]["theme"]
     if "multi_line_input" in config["settings"] and not os.getenv("MULTILINE_INPUT"):
         os.environ["MULTILINE_INPUT"] = str(config["settings"]["multi_line_input"]).lower()
+    if "tui_mode" in config["settings"] and not os.getenv("TUI_MODE"):
+        os.environ["TUI_MODE"] = str(config["settings"]["tui_mode"]).lower()
 
 console = Console()
 theme_manager = ThemeManager(console)
@@ -1403,6 +1405,20 @@ def handle_context_command(assistant: CodeAssist, command: str) -> str:
     return "Usage: /context clear | /context image {list|add|remove} [/path/to/image]"
 
 
+def _start_tui(assistant: CodeAssist, mode: str = "agent") -> str:
+    """Start the separate TUI implementation and return its exit reason."""
+    try:
+        from tui import WTFCodeTUI
+    except ImportError:
+        try:
+            from .tui import WTFCodeTUI
+        except ImportError as exc:
+            console.print(f"[bold red]Error:[/bold red] Could not import TUI interface: {exc}")
+            return "import_error"
+
+    return WTFCodeTUI(assistant=assistant, mode=mode, console=console).run()
+
+
 def start_cli() -> None:
 
     # Check for WEB_MODE in .env
@@ -1453,6 +1469,15 @@ def start_cli() -> None:
     
     assistant: CodeAssist = CodeAssist(provider=provider, model=model)
     mode = "agent"
+
+    if os.getenv("TUI_MODE", "").lower() == "true":
+        console.print("[bold green]TUI_MODE detected. Starting TUI interface...[/bold green]")
+        result = _start_tui(assistant, mode)
+        if result == "tui_off":
+            console.print(f"[bold green]{set_tui_mode(False)}[/bold green]")
+            os.environ["TUI_MODE"] = "false"
+        if result == "exit":
+            return
     
     while True:
         try:
@@ -1486,6 +1511,7 @@ def start_cli() -> None:
                     "[bold cyan]/theme[/bold cyan] - Change terminal theme\n"
                     "[bold cyan]/models[/bold cyan] - List and select available models for the current provider\n"
                     "[bold cyan]/web[/bold cyan] - Start the Streamlit web interface\n"
+                    "[bold cyan]/tui {on|off}[/bold cyan] - Toggle the OpenCode-style TUI interface\n"
                     "[bold cyan]/add {file}[/bold cyan] - Add a file's content to the conversation context\n"
                     "[bold cyan]/commit[/bold cyan] - Generate a commit message and commit all changes\n"
                     "[bold cyan]/init[/bold cyan] - Initialize AGENTS.md\n"
@@ -1582,6 +1608,22 @@ def start_cli() -> None:
                     with console.status("[bold cyan]Committing..."):
                         result = git_commit(commit_msg)
                     console.print(f"[bold green]{result}[/bold green]")
+                continue
+            if query.startswith('/tui'):
+                parts = query.split()
+                if len(parts) != 2 or parts[1].lower() not in {"on", "off"}:
+                    console.print("[bold yellow]Usage:[/bold yellow] /tui {on|off}")
+                    continue
+                enabled = parts[1].lower() == "on"
+                console.print(f"[bold green]{set_tui_mode(enabled)}[/bold green]")
+                os.environ["TUI_MODE"] = str(enabled).lower()
+                if enabled:
+                    result = _start_tui(assistant, mode)
+                    if result == "tui_off":
+                        console.print(f"[bold green]{set_tui_mode(False)}[/bold green]")
+                        os.environ["TUI_MODE"] = "false"
+                    if result == "exit":
+                        return
                 continue
             if query == '/web':
                 console.print("[bold green]Starting Streamlit web interface...[/bold green]")
