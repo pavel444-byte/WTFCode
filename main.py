@@ -62,11 +62,11 @@ except ImportError:
 
 # Import local modules with fallback for package imports
 try:
-    from ya_config import config, init_config, reload_config, get_config_path, set_mcp_server_state, upsert_mcp_server
+    from ya_config import config, init_config, reload_config, get_config_path, set_mcp_server_state, set_lsp_server_state, upsert_mcp_server, upsert_lsp_server
     from theme_manager import ThemeManager
 except ImportError:
     try:
-        from .ya_config import config, init_config, reload_config, get_config_path, set_mcp_server_state, upsert_mcp_server
+        from .ya_config import config, init_config, reload_config, get_config_path, set_mcp_server_state, set_lsp_server_state, upsert_mcp_server, upsert_lsp_server
         from .theme_manager import ThemeManager
     except ImportError as e:
         # If both fail, provide helpful error message
@@ -1313,6 +1313,66 @@ class CodeAssist:
         return content.strip().strip('"').strip("'")
 
 
+
+def _derive_lsp_server_name(package_or_url: str) -> str:
+    """Derive a readable LSP config key from a package name or URL."""
+    normalized = package_or_url.rstrip("/")
+    if normalized.startswith("@") and "/" in normalized:
+        scope, package = normalized.split("/", 1)
+        value = scope.lstrip("@") if package in {"language-server", "lsp"} else f"{scope.lstrip('@')}-{package}"
+    else:
+        value = normalized.split("/")[-1]
+    if value.endswith(".git"):
+        value = value[:-4]
+    value = value.lstrip("@").replace("@", "-").replace("/", "-")
+    for suffix in ("-language-server", "-lsp", "_language_server", "_lsp"):
+        if value.endswith(suffix):
+            value = value[: -len(suffix)]
+            break
+    return value or "lsp"
+
+
+def _build_lsp_server_config(package_or_url: str, arguments: List[str]) -> Dict[str, Any]:
+    """Build an executable config for an LSP server installed from a package or URL."""
+    if package_or_url.startswith(("http://", "https://", "git+", "git@")):
+        return {"command": "uvx", "args": [package_or_url, *arguments], "env": {}}
+    return {"command": "npx", "args": ["-y", package_or_url, *arguments], "env": {}}
+
+
+def handle_lsp_command(command: str) -> str:
+    """Handle /lsp install/on/off commands for LSP server configuration."""
+    try:
+        parts = shlex.split(command)
+    except ValueError as exc:
+        return f"Invalid /lsp command: {exc}"
+
+    if len(parts) < 2:
+        return "Usage: /lsp install <package_or_url> [args...] | /lsp {on|off} <lsp> [args...]"
+
+    action = parts[1].lower()
+    if action == "install":
+        if len(parts) < 3:
+            return "Usage: /lsp install <package_or_url> [args...]"
+        package_or_url = parts[2]
+        arguments = parts[3:]
+        server = _derive_lsp_server_name(package_or_url)
+        server_config = _build_lsp_server_config(package_or_url, arguments)
+        install_msg = upsert_lsp_server(server, server_config)
+        enable_msg = set_lsp_server_state(server, True)
+        return f"{install_msg} {enable_msg}"
+
+    if action not in {"on", "off"}:
+        return "Usage: /lsp install <package_or_url> [args...] | /lsp {on|off} <lsp> [args...]"
+
+    if len(parts) < 3:
+        return "Usage: /lsp {on|off} <lsp> [args...]"
+    server = parts[2]
+    servers = config.get("lsp_servers", {})
+    if not isinstance(servers, dict) or server not in servers:
+        return f"LSP server '{server}' not found in config.lsp_servers. Run /lsp install <package_or_url> [args...] first."
+    arguments = parts[3:] or None
+    return set_lsp_server_state(server, action == "on", arguments)
+
 def handle_context_command(assistant: CodeAssist, command: str) -> str:
     """Handle /context commands for clearing and managing image context."""
     try:
@@ -1432,6 +1492,8 @@ def start_cli() -> None:
                     "[bold cyan]/config {option}[/bold cyan] - Manage config (reload, create)\n"
                     "[bold cyan]/mcp {enable|disable|restart} {server}[/bold cyan] - Manage MCP server state\n"
                     "[bold cyan]/mcp install {server} {package_or_link} [extra_args...][/bold cyan] - Install and enable MCP server\n"
+                    "[bold cyan]/lsp install {package_or_url} [args...][/bold cyan] - Install and enable LSP server config\n"
+                    "[bold cyan]/lsp {on|off} {lsp} [args...][/bold cyan] - Toggle an installed LSP server\n"
                     "[bold cyan]/context clear[/bold cyan] - Clear AI conversation and image context\n"
                     "[bold cyan]/context image {list|add|remove}[/bold cyan] - Manage image context attachments\n"
                     "[bold cyan]/exit[/bold cyan] - Exit the application\n"
@@ -1465,6 +1527,10 @@ def start_cli() -> None:
                 continue
             if query.startswith('/context'):
                 result = handle_context_command(assistant, query)
+                console.print(f"[bold green]{result}[/bold green]")
+                continue
+            if query.startswith('/lsp'):
+                result = handle_lsp_command(query)
                 console.print(f"[bold green]{result}[/bold green]")
                 continue
             if query.startswith('/mcp'):
