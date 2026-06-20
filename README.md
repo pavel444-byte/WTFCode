@@ -1,7 +1,7 @@
 #   WTFCode
                                           
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/pavel444-byte/WTFCode)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/pavel444-byte/WTFCode) [![CodeFactor](https://www.codefactor.io/repository/github/pavel444-byte/wtfcode/badge/master)](https://www.codefactor.io/repository/github/pavel444-byte/wtfcode/overview/master)
 
                                  
 A powerful CLI-based coding assistant that helps you write, edit, and manage code autonomously.
