@@ -9,10 +9,10 @@ A powerful CLI-based coding assistant that helps you write, edit, and manage cod
 
 ## Latest Release
 
-**WTFCode 1.0.6** refreshes release metadata for the latest package build:
-- bumped packaging metadata to 1.0.6;
-- updated runtime MCP client version reporting;
-- refreshed release documentation and lock metadata.
+**WTFCode 1.0.6** - 2026-05-30
+
+### Changed
+- Bumped project version metadata from 1.0.5 to 1.0.6 across packaging metadata, runtime client info, README release header, and lock metadata.
 
 See [`CHANGELOG.md`](CHANGELOG.md) for full release notes.
 
@@ -21,7 +21,6 @@ See [`CHANGELOG.md`](CHANGELOG.md) for full release notes.
 - **Ask Mode**: Quick Q&A for your codebase.
 - **Auto Code Edit**: Precise file modifications using search and replace.
 - **Auto Command Execute**: Runs shell commands and tests.
-- **Optional TUI Mode**: OpenCode-style terminal workspace that can be enabled with `/tui on`, `.env`, or config.
 
 ## Tools Included
 WTFCode uses the following tools to interact with your environment:
@@ -84,23 +83,6 @@ wtfcode
 ```
 
 Follow the on-screen prompts to switch between **Agent** and **Ask** modes.
-
-TUI mode is optional and is not enabled by default; the classic `main.py` CLI remains the default interface. Enable it interactively or at startup:
-```bash
-/tui on
-/tui off
-```
-
-Startup configuration options:
-```env
-TUI_MODE=false
-```
-
-Or in `~/.wtfcode/config.yml`:
-```yaml
-settings:
-  tui_mode: false
-```
 
 MCP management command:
 ```bash
