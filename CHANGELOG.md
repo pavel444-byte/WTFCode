@@ -13,7 +13,7 @@
 ## WTFCode 1.0.4 - 2026-05-17
 
 ### Fixed
-- Fixed the Streamlit web chat history reset and Agent Mode response rendering by using provider-aware assistant history helpers instead of a missing shared `history` attribute.
+- Fixed the Streamlit web chat history reset and Agent Mode response rendering by ider-aware assistant history helpers instead of a missing shared `history` attribute.
 - Fixed command streaming so long-running commands can safely emit both stdout and stderr without deadlocking, while still enforcing a timeout.
 - Fixed assistant responses for UI clients by returning generated content from `run_agent()` and `ask_only()` instead of requiring callers to scrape console output.
 - Fixed configuration side effects during imports: config file creation is now explicit, and applying a theme no longer writes to disk unless the user changes the theme.
