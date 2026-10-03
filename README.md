@@ -19,8 +19,10 @@ See [`CHANGELOG.md`](CHANGELOG.md) for full release notes.
 ## Features
 - **Agent Mode**: Full autonomous tool use (Read, Write, Edit, Bash, Glob).
 - **Ask Mode**: Quick Q&A for your codebase.
+- **Plan Mode**: Read-only repository exploration followed by an implementation plan.
 - **Auto Code Edit**: Precise file modifications using search and replace.
 - **Auto Command Execute**: Runs shell commands and tests.
+- **Project Instructions**: Automatically loads the repository-root `AGENTS.md` into the agent.
 
 ## Tools Included
 WTFCode uses the following tools to interact with your environment:
@@ -82,7 +84,9 @@ Run CLI mode:
 wtfcode
 ```
 
-Follow the on-screen prompts to switch between **Agent** and **Ask** modes.
+Follow the on-screen prompts to switch between **Agent**, **Plan**, and **Ask** modes. Plan Mode
+can inspect files and search the project, but its runtime guard prevents writes, commands, MCP
+calls, and commits. Autonomous runs stop after `MAX_AGENT_TURNS` (30 by default).
 
 MCP management command:
 ```bash

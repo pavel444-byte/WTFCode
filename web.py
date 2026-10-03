@@ -21,7 +21,20 @@ def main():
     st.set_page_config(page_title="WTFCode Web", page_icon="🤖", layout="wide")
     init_session_state()
 
-    st.title("🤖 WTFCode Web")
+    st.markdown("""
+        <style>
+        .stApp { background: #0b0d10; color: #e6edf3; }
+        [data-testid="stSidebar"] { background: #11151a; border-right: 1px solid #27313a; }
+        [data-testid="stChatMessage"] {
+            border: 1px solid #27313a; border-radius: 10px; background: #11151a;
+        }
+        .wtf-header { font-family: ui-monospace, monospace; margin-bottom: 1rem; }
+        .wtf-header strong { color: #7ee787; font-size: 1.6rem; }
+        .wtf-header span { color: #8b949e; margin-left: .75rem; }
+        .wtf-status { color: #7ee787; font-family: ui-monospace, monospace; }
+        </style>
+        <div class="wtf-header"><strong>WTFCode</strong><span>project-aware coding agent</span></div>
+    """, unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("Settings")
@@ -59,11 +72,15 @@ def main():
                 st.session_state.assistant.model = new_model
                 st.success(f"Model changed to {new_model}")
 
-        st.session_state.mode = st.selectbox("Mode", ["agent", "ask"], index=0 if st.session_state.mode == "agent" else 1)
+        modes = ["agent", "plan", "ask"]
+        st.session_state.mode = st.selectbox(
+            "Mode", modes, index=modes.index(st.session_state.mode)
+        )
         
         st.divider()
         st.info(f"Provider: {st.session_state.assistant.provider}")
         st.info(f"Model: {st.session_state.assistant.model}")
+        st.markdown(f'<div class="wtf-status">● {st.session_state.mode.upper()} · READY</div>', unsafe_allow_html=True)
         
         if st.button("Clear Chat"):
             st.session_state.messages = []
@@ -98,6 +115,11 @@ def main():
             if st.session_state.mode == "agent":
                 with st.spinner("Agent is thinking and acting..."):
                     content = st.session_state.assistant.run_agent(prompt, render=False)
+                    st.markdown(content)
+                    st.session_state.messages.append({"role": "assistant", "content": content})
+            elif st.session_state.mode == "plan":
+                with st.spinner("Plan Mode is exploring the project (read-only)..."):
+                    content = st.session_state.assistant.plan(prompt, render=False)
                     st.markdown(content)
                     st.session_state.messages.append({"role": "assistant", "content": content})
             else:

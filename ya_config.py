@@ -75,6 +75,7 @@ def get_default_config() -> Dict[str, Any]:
             "notifications": True,
             "theme": "dark",
             "multi_line_input": True,
+            "max_agent_turns": 30,
             "web_mode": False
         }
     }

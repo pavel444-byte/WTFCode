@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Added a read-only Plan Mode to the CLI and Streamlit UI for repository-aware implementation planning.
+- Added a configurable agent-turn limit to prevent unbounded tool loops.
+- Added automatic repository-root `AGENTS.md` instructions to every assistant session.
+
+### Changed
+- Hardened tool dispatch so Plan Mode rejects mutating tools even if a provider requests one.
+
 ## WTFCode 1.0.6 - 2026-05-30
 
 ### Changed

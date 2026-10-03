@@ -19,6 +19,7 @@ PROJECT_ROOT = Path.cwd().resolve()
 SHELL_METACHARACTERS = frozenset("|&;<>()$`\\!*?[]{}~\n")
 COMMAND_TIMEOUT_SECONDS = 120
 COMMAND_TERMINATION_GRACE_SECONDS = 2
+DEFAULT_MAX_AGENT_TURNS = 30
 
 try:
     import openai
@@ -117,6 +118,8 @@ if config.get("settings"):
         os.environ["THEME"] = config["settings"]["theme"]
     if "multi_line_input" in config["settings"] and not os.getenv("MULTILINE_INPUT"):
         os.environ["MULTILINE_INPUT"] = str(config["settings"]["multi_line_input"]).lower()
+    if "max_agent_turns" in config["settings"] and not os.getenv("MAX_AGENT_TURNS"):
+        os.environ["MAX_AGENT_TURNS"] = str(config["settings"]["max_agent_turns"])
 
 console = Console()
 theme_manager = ThemeManager(console)
@@ -576,6 +579,24 @@ Guidelines:
 4. Be concise and professional.
 5. If a command is dangerous, warn the user first (though in this CLI, they are auto-executed)."""
 
+PLAN_SYSTEM_PROMPT = """You are in Plan Mode. Investigate the repository before proposing work.
+You may only read files and search for files. Never modify files, run commands, call external
+tools, or commit. Return a concrete implementation plan with relevant file paths, risks, and
+verification steps. Clearly state assumptions and unresolved decisions."""
+
+
+def load_project_instructions() -> str:
+    """Load repository-local agent instructions without allowing paths outside the workspace."""
+    instructions_path = PROJECT_ROOT / "AGENTS.md"
+    if not instructions_path.is_file():
+        return ""
+    try:
+        instructions = instructions_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Could not read %s: %s", instructions_path, exc)
+        return ""
+    return f"\n\nProject instructions from AGENTS.md:\n{instructions}"
+
 OPENAI_COMPATIBLE_PROVIDERS = {"openai", "openrouter", "azure_openai", "llama"}
 SUPPORTED_IMAGE_MIME_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 
@@ -700,6 +721,13 @@ def _build_anthropic_tool(spec: ToolSpec) -> ToolUnionParam:
 
 OPENAI_TOOLS: List[ChatCompletionToolParam] = [_build_openai_tool(spec) for spec in TOOL_SPECS]
 ANTHROPIC_TOOLS: List[ToolUnionParam] = [_build_anthropic_tool(spec) for spec in TOOL_SPECS]
+PLAN_TOOL_NAMES = frozenset({"read_file", "glob_search"})
+OPENAI_PLAN_TOOLS: List[ChatCompletionToolParam] = [
+    _build_openai_tool(spec) for spec in TOOL_SPECS if spec.name in PLAN_TOOL_NAMES
+]
+ANTHROPIC_PLAN_TOOLS: List[ToolUnionParam] = [
+    _build_anthropic_tool(spec) for spec in TOOL_SPECS if spec.name in PLAN_TOOL_NAMES
+]
 
 # Cache for validated model lists per provider
 _model_cache: Dict[str, List[str]] = {}
@@ -710,11 +738,12 @@ class CodeAssist:
 
     def __init__(self, provider: str = "openai", model: Optional[str] = None) -> None:
         self.provider = provider
-        self.system_prompt = SYSTEM_PROMPT
+        self.system_prompt = SYSTEM_PROMPT + load_project_instructions()
         self.openai_history: List[ChatCompletionMessageParam] = []
         self.anthropic_history: List[MessageParam] = []
         self.gemini_history: List[Dict[str, str]] = []
         self.context_images: List[ContextImage] = []
+        self._allowed_tool_names: Optional[frozenset[str]] = None
         if model is None:
             if provider == "openai":
                 model = "gpt-4o"
@@ -989,6 +1018,8 @@ class CodeAssist:
             self.gemini_history.append(cast(Dict[str, str], message))
 
     def _run_local_tool(self, name: str, args: Dict[str, Any]) -> str:
+        if self._allowed_tool_names is not None and name not in self._allowed_tool_names:
+            return f"Tool '{name}' is unavailable in Plan Mode (read-only)."
         info_color = theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['info']
         with console.status(f"[bold {info_color}]Tool Call: {name}({list(args.values())[0] if args else ''})..."):
             if name == "read_file":
@@ -1095,15 +1126,21 @@ class CodeAssist:
                 border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['thinking']
             ))
 
-    def run_agent(self, prompt: str, render: bool = True) -> str:
+    def run_agent(self, prompt: str, render: bool = True, plan: bool = False) -> str:
         """Run agent mode with tool access and return the final assistant text."""
+        openai_tools = OPENAI_PLAN_TOOLS if plan else OPENAI_TOOLS
+        anthropic_tools = ANTHROPIC_PLAN_TOOLS if plan else ANTHROPIC_TOOLS
+        self._allowed_tool_names = PLAN_TOOL_NAMES if plan else None
+        if plan:
+            prompt = f"{PLAN_SYSTEM_PROMPT}\n\nPlanning request:\n{prompt}"
         had_context_images = bool(self.context_images)
         openai_user_message_index = len(self.openai_history) if self.provider in OPENAI_COMPATIBLE_PROVIDERS else -1
         anthropic_user_message_index = len(self.anthropic_history) if self.provider == "anthropic" else -1
         self.add_context_message(prompt, include_images=True)
         final_content = ""
         
-        while True:
+        max_turns = max(1, int(os.getenv("MAX_AGENT_TURNS", str(DEFAULT_MAX_AGENT_TURNS))))
+        for _turn in range(max_turns):
             msg: Any = None
             try:
                 if self.provider in OPENAI_COMPATIBLE_PROVIDERS:
@@ -1112,7 +1149,7 @@ class CodeAssist:
                         response = client.chat.completions.create(
                             model=self.model,
                             messages=self.openai_history,
-                            tools=OPENAI_TOOLS,
+                            tools=openai_tools,
                             tool_choice="auto",
                             extra_body={"include_reasoning": True},
                         )
@@ -1120,7 +1157,7 @@ class CodeAssist:
                         response = client.chat.completions.create(
                             model=self.model,
                             messages=self.openai_history,
-                            tools=OPENAI_TOOLS,
+                            tools=openai_tools,
                             tool_choice="auto",
                         )
                     msg = response.choices[0].message
@@ -1132,7 +1169,7 @@ class CodeAssist:
                         max_tokens=4096,
                         system=self.system_prompt,
                         messages=self.anthropic_history,
-                        tools=ANTHROPIC_TOOLS,
+                        tools=anthropic_tools,
                     )
                     msg = response
 
@@ -1195,6 +1232,10 @@ class CodeAssist:
                     console.print(Panel(Markdown(content), title="WTFCode", border_style=theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['success']))
                     send_notification("WTFcode: AI Answered", content[:100] + "..." if len(content) > 100 else content)
             break
+        else:
+            final_content = f"Agent stopped after {max_turns} turns to prevent an unbounded tool loop."
+            if render:
+                console.print(f"[bold yellow]{final_content}[/bold yellow]")
         if self.provider in OPENAI_COMPATIBLE_PROVIDERS and openai_user_message_index >= 0 and openai_user_message_index < len(self.openai_history):
             self.openai_history[openai_user_message_index] = self._strip_openai_image_content(self.openai_history[openai_user_message_index])
         if self.provider == "anthropic" and anthropic_user_message_index >= 0 and anthropic_user_message_index < len(self.anthropic_history):
@@ -1204,7 +1245,12 @@ class CodeAssist:
                 if "parts" in message:
                     message.pop("parts", None)
         self._clear_used_context_images(had_context_images)
+        self._allowed_tool_names = None
         return final_content
+
+    def plan(self, prompt: str, render: bool = True) -> str:
+        """Inspect the project with read-only tools and return an implementation plan."""
+        return self.run_agent(prompt, render=render, plan=True)
 
     def ask_only(self, prompt: str, render: bool = True) -> str:
         """Standard Q&A mode without tool access for speed; return the answer text."""
@@ -1475,13 +1521,13 @@ def start_cli() -> None:
                 continue
 
             if query == '/mode':
-                mode = cast(str, Prompt.ask("\n[bold white]Switch Mode[/bold white] ([cyan]agent[/cyan]/[blue]ask[/blue])", choices=["agent", "ask"], default=mode)).lower()
+                mode = cast(str, Prompt.ask("\n[bold white]Switch Mode[/bold white] ([cyan]agent[/cyan]/[blue]ask[/blue]/[magenta]plan[/magenta])", choices=["agent", "ask", "plan"], default=mode)).lower()
                 console.print(f"[bold green]Mode switched to:[/bold green] {mode}")
                 continue
             if query == '/help':
                 help_color = theme_manager.DEFAULT_THEMES[theme_manager.current_theme_name]['info']
                 console.print(Panel(
-                    "[bold cyan]/mode[/bold cyan] - Switch between Agent and Ask modes\n"
+                    "[bold cyan]/mode[/bold cyan] - Switch between Agent, Ask, and read-only Plan modes\n"
                     "[bold cyan]/theme[/bold cyan] - Change terminal theme\n"
                     "[bold cyan]/models[/bold cyan] - List and select available models for the current provider\n"
                     "[bold cyan]/web[/bold cyan] - Start the Streamlit web interface\n"
@@ -1634,6 +1680,8 @@ def start_cli() -> None:
 
             if mode == 'agent':
                 assistant.run_agent(query)
+            elif mode == 'plan':
+                assistant.plan(query)
             else:
                 assistant.ask_only(query)
                 
